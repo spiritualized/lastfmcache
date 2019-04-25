@@ -8,11 +8,11 @@ setup(
     download_url = 'https://github.com/spiritualized/lastfmcache/archive/v1.0.0.tar.gz',    # I explain this later on
     keywords = ['lastfm', 'python', 'cache', 'api'],   # Keywords that define your package best
     install_requires = [
-                    'bs4'
-                    'pylast'
-                    'requests'
-                    'sqlalchemy'
-                    'sqlite3'
+                    'bs4',
+                    'pylast',
+                    'requests',
+                    'sqlalchemy',
+                    'sqlite3',
                 ],
 
     classifiers = [
