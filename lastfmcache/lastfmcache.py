@@ -263,31 +263,36 @@ class lastfmcache:
         html = requests.get("https://www.last.fm/music/{0}/{1}".format(artist_name, release_name)).content
         soup = bs4.BeautifulSoup(html, 'html5lib')
 
-        if not soup.find(class_="header-title"):
-            raise pylast.lastfmCacheException("Release '{0}' by {1} not found.".format(release_name, artist_name))
+        if not soup.find(class_="header-new-title"):
+            raise lastfmcache.lastfmcacheException("Release '{0}' by {1} not found.".format(release_name, artist_name))
 
-        for match in soup.find(class_="album-metadata").findAll(class_="metadata-item"):
-            if match.find(class_="metadata-title") and match.find(class_="metadata-title").string == "Release date":
-                release_date_str = match.find(class_="metadata-display").string
+        matches = [x for x in soup.find(class_="catalogue-metadata").findAll({"dt", "dd"})]
+        pairs = [matches[i:i + 2] for i in range(0, len(matches), 2)]
+
+        for pair in pairs:
+            if pair[0].string == "Release Date":
+                release_date_str = pair[1].string
                 try:
                     release.release_date = datetime.datetime.strptime(release_date_str, "%d %B %Y").date().strftime("%Y-%m-%d")
                 except:
                     release.release_date = datetime.datetime.strptime(release_date_str, "%Y").date().strftime("%Y")
 
-        if not len(release.tags) and soup.find(class_="tags-list"):
+        # tags are often not populated correctly/at all on the API
+        if soup.find(class_="catalogue-tags"):
             next_weight = -1
-            for match in soup.find(class_="tags-list").findAll(class_="tag"):
-                release.tags[match.string] = next_weight
-                next_weight -= 1
+            for match in soup.find(class_="catalogue-tags").findAll(class_="tag"):
+                if match.string not in release.tags:
+                    release.tags[match.string] = next_weight
+                    next_weight -= 1
 
-        if soup.find(id="tracks-section").find("tbody"):
-            for row in soup.find(id="tracks-section").find("tbody").findAll("tr"):
+        if soup.find(id="tracklist").find("tbody"):
+            for row in soup.find(id="tracklist").find("tbody").findAll("tr"):
                 track_number = int(row.find(class_="chartlist-index").string)
                 track_name = row.find(class_="chartlist-name").find("a").get_text()
-                listener_count = int(row.find(class_="chartlist-countbar").find(class_="countbar-bar-value").next.replace(",",""))
+                listener_count = int(row.find(class_="chartlist-count-bar").find(class_="chartlist-count-bar-value").next.replace(",",""))
                 track_artist = None
-                if row.find(class_="chartlist-name").find(class_="chartlist-artists"):
-                    track_artist = row.find(class_="chartlist-name").find(class_="chartlist-artists").find("a").string
+                if row.find(class_="chartlist-artist"):
+                    track_artist = row.find(class_="chartlist-artist").find("a").string
                 release.tracks[track_number] = lastfm_track(track_number, track_name, track_artist, listener_count)
 
 
