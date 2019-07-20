@@ -278,30 +278,31 @@ class lastfmcache:
         if not soup.find(class_="header-new-title"):
             raise lastfmcache.lastfmcacheException("Release '{0}' by {1} not found.".format(release_name, artist_name))
 
-        matches = [x for x in soup.find(class_="catalogue-metadata").findAll({"dt", "dd"})]
-        pairs = [matches[i:i + 2] for i in range(0, len(matches), 2)]
+        if soup.find(class_="catalogue-metadata"):
+            matches = [x for x in soup.find(class_="catalogue-metadata").findAll({"dt", "dd"})]
+            pairs = [matches[i:i + 2] for i in range(0, len(matches), 2)]
 
-        for pair in pairs:
-            if pair[0].string == "Release Date":
-                release_date_str = pair[1].string
-                try:
-                    release.release_date = datetime.datetime.strptime(release_date_str, "%d %B %Y").date().strftime(
-                        "%Y-%m-%d")
-                except:
-                    release.release_date = datetime.datetime.strptime(release_date_str, "%Y").date().strftime("%Y")
+            for pair in pairs:
+                if pair[0].string == "Release Date":
+                    release_date_str = pair[1].string
+                    try:
+                        release.release_date = datetime.datetime.strptime(release_date_str, "%d %B %Y").date().strftime(
+                            "%Y-%m-%d")
+                    except:
+                        release.release_date = datetime.datetime.strptime(release_date_str, "%Y").date().strftime("%Y")
 
         # tags are often not populated correctly/at all on the API
         web_tags = OrderedDict()
         if soup.find(class_="catalogue-tags"):
             next_weight = -1
             for match in soup.find(class_="catalogue-tags").findAll(class_="tag"):
-                web_tags[match.string] = next_weight
+                web_tags[str(match.string)] = next_weight
                 next_weight -= 1
 
         # combine the two tag sets intelligently
         release.tags = lastfmcache.combine_tags(api_tags, web_tags)
 
-        if soup.find(id="tracklist").find("tbody"):
+        if soup.find(id="tracklist"):
             for row in soup.find(id="tracklist").find("tbody").findAll("tr"):
                 track_number = int(row.find(class_="chartlist-index").string)
                 track_name = row.find(class_="chartlist-name").find("a").get_text()
