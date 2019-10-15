@@ -99,7 +99,7 @@ class lastfmcache:
         cover_image = sqlalchemy.Column(sqlalchemy.String(512), nullable=True)
         biography = sqlalchemy.Column(sqlalchemy.Text, nullable=False)
 
-        tags = sqlalchemy.orm.relationship("ArtistTag", order_by="ArtistTag.score", cascade="all, delete-orphan")
+        tags = sqlalchemy.orm.relationship("ArtistTag", order_by="desc(ArtistTag.score)", cascade="all, delete-orphan")
 
         def __init__(self, artist_name, listener_count, play_count, cover_image, biography):
             self.fetched = datetime.datetime.now()
@@ -134,7 +134,7 @@ class lastfmcache:
         play_count = sqlalchemy.Column(sqlalchemy.Integer, autoincrement=True)
         cover_image = sqlalchemy.Column(sqlalchemy.String(512))
 
-        tags = sqlalchemy.orm.relationship("ReleaseTag", order_by="ReleaseTag.score", cascade="all, delete-orphan")
+        tags = sqlalchemy.orm.relationship("ReleaseTag", order_by="desc(ReleaseTag.score)", cascade="all, delete-orphan")
         tracks = sqlalchemy.orm.relationship("ReleaseTrack", order_by="ReleaseTrack.track_number",
                                              cascade="all, delete-orphan")
 
