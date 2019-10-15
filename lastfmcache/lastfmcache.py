@@ -268,7 +268,7 @@ class lastfmcache:
         release.play_count = api_release.get_playcount()
         release.cover_image = api_release.get_cover_image()
 
-        api_tags = OrderedDict();
+        api_tags = OrderedDict()
         for tag in api_release.get_top_tags():
             api_tags[tag.item.name.lower()] = tag.weight
 
