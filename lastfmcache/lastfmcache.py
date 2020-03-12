@@ -268,11 +268,13 @@ class lastfmcache:
         release.play_count = api_release.get_playcount()
         release.cover_image = api_release.get_cover_image()
 
-        api_tags = OrderedDict()
+        api_tags = OrderedDict();
         for tag in api_release.get_top_tags():
             api_tags[tag.item.name.lower()] = tag.weight
 
-        html = requests.get("https://www.last.fm/music/{0}/{1}".format(artist_name, release_name)).content
+        url_artist_name = artist_name.replace("/", "%2F")
+        url_release_name = release_name.replace("/", "%2F")
+        html = requests.get("https://www.last.fm/music/{0}/{1}".format(url_artist_name, url_release_name)).content
         soup = bs4.BeautifulSoup(html, 'html5lib')
 
         if not soup.find(class_="header-new-title"):
