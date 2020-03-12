@@ -289,7 +289,12 @@ class lastfmcache:
                         release.release_date = datetime.datetime.strptime(release_date_str, "%d %B %Y").date().strftime(
                             "%Y-%m-%d")
                     except:
-                        release.release_date = datetime.datetime.strptime(release_date_str, "%Y").date().strftime("%Y")
+                        try:
+                            release.release_date = datetime.datetime.strptime(release_date_str,
+                                                                              "%B %Y").date().strftime("%Y-%m")
+                        except:
+                            release.release_date = datetime.datetime.strptime(release_date_str
+                                                                              , "%Y").date().strftime("%Y")
 
         # tags are often not populated correctly/at all on the API
         web_tags = OrderedDict()
