@@ -313,9 +313,10 @@ class lastfmcache:
             for row in soup.find(id="tracklist").find("tbody").findAll("tr"):
                 track_number = int(row.find(class_="chartlist-index").string)
                 track_name = row.find(class_="chartlist-name").find("a").get_text()
-                listener_count = int(
+                listener_count = str(
                     row.find(class_="chartlist-count-bar").find(class_="chartlist-count-bar-value").next.replace(",",
-                                                                                                                 ""))
+                                                                                                                 "")).strip()
+                listener_count = str(listener_count) if listener_count else 0
                 track_artist = None
                 if row.find(class_="chartlist-artist").find("a"):
                     track_artist = row.find(class_="chartlist-artist").find("a").string
