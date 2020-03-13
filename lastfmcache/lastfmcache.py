@@ -74,6 +74,14 @@ class lastfm_track:
         self.artist_name = artist_name
         self.listener_count = listener_count
 
+class lastfm_top_release:
+
+    def __init__(self, index, scrobbles, artist, title):
+        self.index = index
+        self.scrobbles = scrobbles
+        self.artist = artist
+        self.title = title
+
 
 class lastfmcache:
 
@@ -176,6 +184,26 @@ class lastfmcache:
             self.track_name = track_name
             self.track_artist = track_artist
             self.listener_count = listener_count
+
+    class TopUserRelease(__db_base__):
+        __tablename__ = "top_user_releases"
+
+
+        fetched = sqlalchemy.Column(sqlalchemy.DateTime, nullable=False)
+        username = sqlalchemy.Column(sqlalchemy.String(512, collation='NOCASE'), nullable=False, primary_key=True)
+        index = sqlalchemy.Column(sqlalchemy.Integer, nullable=False, primary_key=True)
+        scrobbles = sqlalchemy.Column(sqlalchemy.Integer, nullable=False)
+        artist = sqlalchemy.Column(sqlalchemy.String(512, collation='NOCASE'), nullable=False)
+        title = sqlalchemy.Column(sqlalchemy.String(512, collation='NOCASE'), nullable=False)
+
+        def __init__(self, fetched, username, index, scrobbles, artist, title):
+            self.fetched = fetched
+            self.username = username
+            self.index = index
+            self.scrobbles = scrobbles
+            self.artist = artist
+            self.title = title
+
 
     # connect to database
     def enable_file_cache(self, cache_validity=86400 * 28):
@@ -340,6 +368,63 @@ class lastfmcache:
             self.db.commit()
 
         return release
+
+    def get_top_user_releases(self, username):
+
+        now = datetime.datetime.now()
+        expiry = now - datetime.timedelta(seconds=self.cache_validity)
+        top_releases = []
+
+        if self.db:
+            results = self.db.query(lastfmcache.TopUserRelease)\
+                .filter_by(username=username)\
+                .filter(lastfmcache.TopUserRelease.fetched > expiry)\
+                .order_by(lastfmcache.TopUserRelease.index)\
+                .all()
+
+            if len(results):
+                for curr in results:
+                    top_releases.append(lastfm_top_release(curr.index, curr.scrobbles, curr.artist, curr.title))
+
+                return top_releases
+
+        page_num = 1
+
+        while(True):
+            resp = requests.get("https://www.last.fm/user/{username}/library/albums?page={page_num}"
+                                .format(username=username, page_num=page_num), allow_redirects=False)
+            if resp.status_code == 302:
+                break
+            elif resp.status_code != 200:
+                continue
+
+            soup = bs4.BeautifulSoup(resp.text, 'html5lib')
+
+            if not soup.find(id="top-albums-section"):
+                raise lastfmcache.lastfmcacheException("Could not find LastFM data")
+
+            for row in soup.find(id="top-albums-section").findAll(class_="chartlist-row"):
+                index = int(str(row.find(class_="chartlist-index").contents[0]).replace(",",""))
+                scrobbles = int(str(row.find(class_="chartlist-count-bar-value").contents[0]).replace(",",""))
+                title = str(row.find(class_="chartlist-name").find("a").contents[0])
+                artist = str(row.find(class_="chartlist-artist").find("a").contents[0])
+
+                top_releases.append(lastfm_top_release(index, scrobbles, artist, title))
+
+            page_num += 1
+
+        if self.db:
+            self.db.query(lastfmcache.TopUserRelease).filter(lastfmcache.TopUserRelease.username == username).delete()
+            self.db.commit()
+
+            for release in top_releases:
+                self.db.add(lastfmcache.TopUserRelease(now, username, release.index,
+                                                       release.scrobbles, release.artist, release.title))
+                self.db.commit()
+
+        return top_releases
+
+
 
     # web tags have no score, however API tags are frequently missing
     # sometimes API tags all have identical scores, yet web ordering is superior
