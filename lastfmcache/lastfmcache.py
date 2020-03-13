@@ -302,11 +302,12 @@ class lastfmcache:
 
         url_artist_name = artist_name.replace("/", "%2F")
         url_release_name = release_name.replace("/", "%2F")
-        html = requests.get("https://www.last.fm/music/{0}/{1}".format(url_artist_name, url_release_name)).content
-        soup = bs4.BeautifulSoup(html, 'html5lib')
+        resp = requests.get("https://www.last.fm/music/{0}/{1}".format(url_artist_name, url_release_name))
 
-        if not soup.find(class_="header-new-title"):
+        if resp.status_code == 404:
             raise lastfmcache.lastfmcacheException("Release '{0}' by {1} not found.".format(release_name, artist_name))
+
+        soup = bs4.BeautifulSoup(resp.content, 'html5lib')
 
         if soup.find(class_="catalogue-metadata"):
             matches = [x for x in soup.find(class_="catalogue-metadata").findAll({"dt", "dd"})]
