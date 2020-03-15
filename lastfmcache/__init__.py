@@ -1,1 +1,1 @@
-from lastfmcache.lastfmcache import lastfmcache
+from lastfmcache.lastfmcache import LastfmCache
