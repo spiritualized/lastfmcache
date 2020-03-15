@@ -2,6 +2,7 @@ from collections import OrderedDict
 from typing import Dict, List
 
 import pylast
+from pylast import _Opus
 import bs4
 import requests
 import datetime
@@ -303,7 +304,10 @@ class LastfmCache:
                 return release
 
         api_release = self.api.get_album(artist_name, release_name)
-        release.release_name = api_release.get_title(properly_capitalized=True)
+        try:
+            release.release_name = api_release.get_title(properly_capitalized=True)
+        except pylast.WSError:
+            raise LastfmCache.LastfmCacheError("Release '{0}' by {1} not found.".format(release_name, artist_name))
         release.artist_name = api_release.get_artist().get_name(properly_capitalized=True)
         release.listener_count = api_release.get_listener_count()
         release.play_count = api_release.get_playcount()
