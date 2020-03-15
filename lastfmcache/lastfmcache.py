@@ -1,4 +1,6 @@
 from collections import OrderedDict
+from typing import Dict, List
+
 import pylast
 import bs4
 import requests
@@ -18,7 +20,7 @@ def set_sqlite_pragma(dbapi_connection, connection_record):
 
 class lastfm_artist:
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.artist_name = None
         self.listener_count = None
         self.play_count = None
@@ -26,7 +28,7 @@ class lastfm_artist:
         self.cover_image = None
         self.tags = OrderedDict()
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         has_cover_image = "yes" if self.cover_image else "no"
         has_biography = "yes" if self.biography else "no"
         tags = ", ".join(self.tags)
@@ -42,7 +44,7 @@ class lastfm_artist:
 
 class lastfm_release:
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.release_name = None
         self.artist_name = None
         self.release_date = None
@@ -53,7 +55,7 @@ class lastfm_release:
         self.tags = OrderedDict()
         self.tracks = OrderedDict()
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         has_cover_image = "yes" if self.has_cover_image else "no"
         tags = ", ".join(self.tags)
 
@@ -68,7 +70,7 @@ class lastfm_release:
 
 class lastfm_track:
 
-    def __init__(self, track_number, track_name, artist_name, listener_count):
+    def __init__(self, track_number: int, track_name: str, artist_name: str, listener_count: int) -> None:
         self.track_number = track_number
         self.track_name = track_name
         self.artist_name = artist_name
@@ -76,7 +78,7 @@ class lastfm_track:
 
 class lastfm_top_release:
 
-    def __init__(self, index, scrobbles, artist, title):
+    def __init__(self, index: int, scrobbles: int, artist: str, title: str) -> None:
         self.index = index
         self.scrobbles = scrobbles
         self.artist = artist
@@ -85,10 +87,11 @@ class lastfm_top_release:
 
 class lastfmcache:
 
-    def __init__(self, api_key, shared_secret):
+    def __init__(self, api_key: str, shared_secret: str) -> None:
         self.api_key = api_key
         self.shared_secret = shared_secret
         self.api = pylast.LastFMNetwork(api_key=api_key, api_secret=shared_secret)
+        #self.monkey_patch()
         self.db = None
 
     class lastfmcacheException(Exception):
@@ -109,7 +112,8 @@ class lastfmcache:
 
         tags = sqlalchemy.orm.relationship("ArtistTag", order_by="desc(ArtistTag.score)", cascade="all, delete-orphan")
 
-        def __init__(self, artist_name, listener_count, play_count, cover_image, biography):
+        def __init__(self, artist_name: str, listener_count: int, play_count: int, cover_image: str,
+                     biography: str) -> None:
             self.fetched = datetime.datetime.now()
             self.artist_name = artist_name
             self.listener_count = listener_count
@@ -126,7 +130,7 @@ class lastfmcache:
         tag = sqlalchemy.Column(sqlalchemy.String(100), nullable=False, primary_key=True)
         score = sqlalchemy.Column(sqlalchemy.Integer)
 
-        def __init__(self, tag, score):
+        def __init__(self, tag: str, score: int) -> None:
             self.tag = tag
             self.score = score
 
@@ -142,11 +146,13 @@ class lastfmcache:
         play_count = sqlalchemy.Column(sqlalchemy.Integer, autoincrement=True)
         cover_image = sqlalchemy.Column(sqlalchemy.String(512))
 
-        tags = sqlalchemy.orm.relationship("ReleaseTag", order_by="desc(ReleaseTag.score)", cascade="all, delete-orphan")
+        tags = sqlalchemy.orm.relationship("ReleaseTag", order_by="desc(ReleaseTag.score)",
+                                           cascade="all, delete-orphan")
         tracks = sqlalchemy.orm.relationship("ReleaseTrack", order_by="ReleaseTrack.track_number",
                                              cascade="all, delete-orphan")
 
-        def __init__(self, artist_name, release_name, release_date, listener_count, play_count, cover_image):
+        def __init__(self, artist_name: str, release_name: str, release_date:datetime, listener_count: int,
+                     play_count: int, cover_image: str) -> None:
             self.fetched = datetime.datetime.now()
             self.artist_name = artist_name
             self.release_name = release_name
@@ -165,7 +171,7 @@ class lastfmcache:
         tag = sqlalchemy.Column(sqlalchemy.String(100), nullable=False, primary_key=True)
         score = sqlalchemy.Column(sqlalchemy.Integer)
 
-        def __init__(self, tag, score):
+        def __init__(self, tag: str, score: int) -> None:
             self.tag = tag
             self.score = score
 
@@ -179,7 +185,7 @@ class lastfmcache:
         track_artist = sqlalchemy.Column(sqlalchemy.String(512, collation='NOCASE'), nullable=True)
         listener_count = sqlalchemy.Column(sqlalchemy.Integer, nullable=False)
 
-        def __init__(self, track_number, track_name, track_artist, listener_count):
+        def __init__(self, track_number: int, track_name: str, track_artist: str, listener_count: int) -> None:
             self.track_number = track_number
             self.track_name = track_name
             self.track_artist = track_artist
@@ -196,7 +202,8 @@ class lastfmcache:
         artist = sqlalchemy.Column(sqlalchemy.String(512, collation='NOCASE'), nullable=False)
         title = sqlalchemy.Column(sqlalchemy.String(512, collation='NOCASE'), nullable=False)
 
-        def __init__(self, fetched, username, index, scrobbles, artist, title):
+        def __init__(self, fetched: datetime, username:str, index: int, scrobbles: int, artist: str,
+                     title: str) -> None:
             self.fetched = fetched
             self.username = username
             self.index = index
@@ -206,7 +213,7 @@ class lastfmcache:
 
 
     # connect to database
-    def enable_file_cache(self, cache_validity=86400 * 28):
+    def enable_file_cache(self, cache_validity:int = 86400 * 28) -> None:
 
         engine = sqlalchemy.create_engine("sqlite:///cache.db?check_same_thread=False",
                                           poolclass=sqlalchemy.pool.SingletonThreadPool)
@@ -216,7 +223,7 @@ class lastfmcache:
         self.db = sqlalchemy.orm.scoped_session(db)
         self.cache_validity = cache_validity
 
-    def get_artist(self, artist_name):
+    def get_artist(self, artist_name: str) -> lastfm_artist:
 
         artist = lastfm_artist()
 
@@ -266,7 +273,7 @@ class lastfmcache:
 
         return artist
 
-    def get_release(self, artist_name, release_name):
+    def get_release(self, artist_name: str, release_name: str) -> lastfm_release:
 
         release = lastfm_release()
 
@@ -300,8 +307,8 @@ class lastfmcache:
         for tag in api_release.get_top_tags():
             api_tags[tag.item.name.lower()] = tag.weight
 
-        url_artist_name = artist_name.replace("/", "%2F")
-        url_release_name = release_name.replace("/", "%2F")
+        url_artist_name = artist_name.replace("/", "%2F").replace("#", "%23")
+        url_release_name = release_name.replace("/", "%2F").replace("#", "%23")
         resp = requests.get("https://www.last.fm/music/{0}/{1}".format(url_artist_name, url_release_name))
 
         if resp.status_code == 404:
@@ -370,7 +377,7 @@ class lastfmcache:
 
         return release
 
-    def get_top_user_releases(self, username):
+    def get_top_user_releases(self, username: str) -> List[lastfm_top_release]:
 
         now = datetime.datetime.now()
         expiry = now - datetime.timedelta(seconds=self.cache_validity)
@@ -429,7 +436,7 @@ class lastfmcache:
 
     # web tags have no score, however API tags are frequently missing
     # sometimes API tags all have identical scores, yet web ordering is superior
-    def combine_tags(api_tags, web_tags):
+    def combine_tags(self, api_tags: Dict[str, int], web_tags: Dict[str, int]) -> Dict[str, int]:
 
         combined_tags = api_tags.copy()
 
