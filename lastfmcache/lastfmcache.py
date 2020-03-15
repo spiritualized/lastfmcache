@@ -6,6 +6,9 @@ import bs4
 import requests
 import datetime
 import sqlalchemy
+import sqlalchemy.orm
+import sqlalchemy.event
+import sqlalchemy.pool
 from sqlalchemy.ext.declarative import declarative_base
 import sqlite3
 
@@ -18,7 +21,7 @@ def set_sqlite_pragma(dbapi_connection, connection_record):
         cursor.close()
 
 
-class lastfm_artist:
+class LastfmArtist:
 
     def __init__(self) -> None:
         self.artist_name = None
@@ -42,7 +45,7 @@ class lastfm_artist:
                                     has_biography, tags)
 
 
-class lastfm_release:
+class LastfmRelease:
 
     def __init__(self) -> None:
         self.release_name = None
@@ -68,7 +71,7 @@ class lastfm_release:
                                     self.release_date, tags)
 
 
-class lastfm_track:
+class LastfmTrack:
 
     def __init__(self, track_number: int, track_name: str, artist_name: str, listener_count: int) -> None:
         self.track_number = track_number
@@ -76,7 +79,8 @@ class lastfm_track:
         self.artist_name = artist_name
         self.listener_count = listener_count
 
-class lastfm_top_release:
+
+class LastfmTopRelease:
 
     def __init__(self, index: int, scrobbles: int, artist: str, title: str) -> None:
         self.index = index
@@ -85,16 +89,16 @@ class lastfm_top_release:
         self.title = title
 
 
-class lastfmcache:
+class LastfmCache:
 
     def __init__(self, api_key: str, shared_secret: str) -> None:
         self.api_key = api_key
         self.shared_secret = shared_secret
         self.api = pylast.LastFMNetwork(api_key=api_key, api_secret=shared_secret)
-        #self.monkey_patch()
         self.db = None
+        self.cache_validity = None
 
-    class lastfmcacheException(Exception):
+    class LastfmCacheError(Exception):
         pass
 
     __db_base__ = declarative_base()
@@ -151,7 +155,7 @@ class lastfmcache:
         tracks = sqlalchemy.orm.relationship("ReleaseTrack", order_by="ReleaseTrack.track_number",
                                              cascade="all, delete-orphan")
 
-        def __init__(self, artist_name: str, release_name: str, release_date:datetime, listener_count: int,
+        def __init__(self, artist_name: str, release_name: str, release_date: datetime, listener_count: int,
                      play_count: int, cover_image: str) -> None:
             self.fetched = datetime.datetime.now()
             self.artist_name = artist_name
@@ -194,7 +198,6 @@ class lastfmcache:
     class TopUserRelease(__db_base__):
         __tablename__ = "top_user_releases"
 
-
         fetched = sqlalchemy.Column(sqlalchemy.DateTime, nullable=False)
         username = sqlalchemy.Column(sqlalchemy.String(512, collation='NOCASE'), nullable=False, primary_key=True)
         index = sqlalchemy.Column(sqlalchemy.Integer, nullable=False, primary_key=True)
@@ -202,7 +205,7 @@ class lastfmcache:
         artist = sqlalchemy.Column(sqlalchemy.String(512, collation='NOCASE'), nullable=False)
         title = sqlalchemy.Column(sqlalchemy.String(512, collation='NOCASE'), nullable=False)
 
-        def __init__(self, fetched: datetime, username:str, index: int, scrobbles: int, artist: str,
+        def __init__(self, fetched: datetime, username: str, index: int, scrobbles: int, artist: str,
                      title: str) -> None:
             self.fetched = fetched
             self.username = username
@@ -211,24 +214,25 @@ class lastfmcache:
             self.artist = artist
             self.title = title
 
-
     # connect to database
-    def enable_file_cache(self, cache_validity:int = 86400 * 28) -> None:
+    def enable_file_cache(self, cache_validity: int = 86400 * 28) -> None:
 
         engine = sqlalchemy.create_engine("sqlite:///cache.db?check_same_thread=False",
                                           poolclass=sqlalchemy.pool.SingletonThreadPool)
-        lastfmcache.__db_base__.metadata.create_all(engine)
+        LastfmCache.__db_base__.metadata.create_all(engine)
 
         db = sqlalchemy.orm.sessionmaker(engine)
         self.db = sqlalchemy.orm.scoped_session(db)
         self.cache_validity = cache_validity
 
-    def get_artist(self, artist_name: str) -> lastfm_artist:
+    def get_artist(self, artist_name: str) -> LastfmArtist:
 
-        artist = lastfm_artist()
+        artist = LastfmArtist()
+
+        db_artist = None
 
         if self.db:
-            db_artist = self.db.query(lastfmcache.Artist).filter_by(artist_name=artist_name).first()
+            db_artist = self.db.query(LastfmCache.Artist).filter_by(artist_name=artist_name).first()
             if db_artist and db_artist.fetched > datetime.datetime.now() - datetime.timedelta(
                     seconds=self.cache_validity):
                 artist.artist_name = db_artist.artist_name
@@ -248,11 +252,11 @@ class lastfmcache:
             artist.play_count = api_artist.get_playcount()
             artist.cover_image = api_artist.get_cover_image()
         except pylast.WSError:
-            raise lastfmcache.lastfmcacheException("LastFM artist not found: '{0}'".format(artist_name))
+            raise LastfmCache.LastfmCacheError("LastFM artist not found: '{0}'".format(artist_name))
 
         try:
             artist.biography = api_artist.get_bio_content().split('<a href="https://www.last.fm/music/')[0].strip()
-        except:
+        except pylast.WSError:
             pass
 
         for tag in api_artist.get_top_tags():
@@ -264,21 +268,23 @@ class lastfmcache:
                 db_artist.__init__(artist.artist_name, artist.listener_count, artist.play_count, artist.cover_image,
                                    artist.biography)
             else:
-                db_artist = lastfmcache.Artist(artist.artist_name, artist.listener_count, artist.play_count,
+                db_artist = LastfmCache.Artist(artist.artist_name, artist.listener_count, artist.play_count,
                                                artist.cover_image, artist.biography)
                 self.db.add(db_artist)
             for tag in artist.tags:
-                db_artist.tags.append(lastfmcache.ArtistTag(tag, artist.tags[tag]))
+                db_artist.tags.append(LastfmCache.ArtistTag(tag, artist.tags[tag]))
             self.db.commit()
 
         return artist
 
-    def get_release(self, artist_name: str, release_name: str) -> lastfm_release:
+    def get_release(self, artist_name: str, release_name: str) -> LastfmRelease:
 
-        release = lastfm_release()
+        release = LastfmRelease()
+
+        db_release = None
 
         if self.db:
-            db_release = self.db.query(lastfmcache.Release).filter_by(artist_name=artist_name,
+            db_release = self.db.query(LastfmCache.Release).filter_by(artist_name=artist_name,
                                                                       release_name=release_name).first()
             if db_release and db_release.fetched > datetime.datetime.now() - datetime.timedelta(
                     seconds=self.cache_validity):
@@ -291,8 +297,8 @@ class lastfmcache:
                 for tag in db_release.tags:
                     release.tags[tag.tag] = tag.score
                 for track in db_release.tracks:
-                    release.tracks[track.track_number] = lastfm_track(track.track_number, track.track_name,
-                                                                      track.track_artist, track.listener_count)
+                    release.tracks[track.track_number] = LastfmTrack(track.track_number, track.track_name,
+                                                                     track.track_artist, track.listener_count)
 
                 return release
 
@@ -303,7 +309,7 @@ class lastfmcache:
         release.play_count = api_release.get_playcount()
         release.cover_image = api_release.get_cover_image()
 
-        api_tags = OrderedDict();
+        api_tags = OrderedDict()
         for tag in api_release.get_top_tags():
             api_tags[tag.item.name.lower()] = tag.weight
 
@@ -312,7 +318,7 @@ class lastfmcache:
         resp = requests.get("https://www.last.fm/music/{0}/{1}".format(url_artist_name, url_release_name))
 
         if resp.status_code == 404:
-            raise lastfmcache.lastfmcacheException("Release '{0}' by {1} not found.".format(release_name, artist_name))
+            raise LastfmCache.LastfmCacheError("Release '{0}' by {1} not found.".format(release_name, artist_name))
 
         soup = bs4.BeautifulSoup(resp.content, 'html5lib')
 
@@ -331,8 +337,8 @@ class lastfmcache:
                             release.release_date = datetime.datetime.strptime(release_date_str,
                                                                               "%B %Y").date().strftime("%Y-%m")
                         except:
-                            release.release_date = datetime.datetime.strptime(release_date_str
-                                                                              , "%Y").date().strftime("%Y")
+                            release.release_date = datetime.datetime.strptime(release_date_str,
+                                                                              "%Y").date().strftime("%Y")
 
         # tags are often not populated correctly/at all on the API
         web_tags = OrderedDict()
@@ -343,20 +349,20 @@ class lastfmcache:
                 next_weight -= 1
 
         # combine the two tag sets intelligently
-        release.tags = lastfmcache.combine_tags(api_tags, web_tags)
+        release.tags = LastfmCache.combine_tags(api_tags, web_tags)
 
         if soup.find(id="tracklist"):
             for row in soup.find(id="tracklist").find("tbody").findAll("tr"):
                 track_number = int(row.find(class_="chartlist-index").string)
                 track_name = row.find(class_="chartlist-name").find("a").get_text()
                 listener_count = str(
-                    row.find(class_="chartlist-count-bar").find(class_="chartlist-count-bar-value").next.replace(",",
-                                                                                                                 "")).strip()
+                    row.find(class_="chartlist-count-bar").find(class_="chartlist-count-bar-value")
+                    .next.replace(",", "")).strip()
                 listener_count = str(listener_count) if listener_count else 0
                 track_artist = None
                 if row.find(class_="chartlist-artist").find("a"):
                     track_artist = row.find(class_="chartlist-artist").find("a").string
-                release.tracks[track_number] = lastfm_track(track_number, track_name, track_artist, listener_count)
+                release.tracks[track_number] = LastfmTrack(track_number, track_name, track_artist, listener_count)
 
         # update/create in the cache entry
         if self.db:
@@ -364,41 +370,41 @@ class lastfmcache:
                 db_release.__init__(release.artist_name, release.release_name, release.release_date,
                                     release.listener_count, release.play_count, release.cover_image)
             else:
-                db_release = lastfmcache.Release(release.artist_name, release.release_name, release.release_date,
+                db_release = LastfmCache.Release(release.artist_name, release.release_name, release.release_date,
                                                  release.listener_count, release.play_count, release.cover_image)
                 self.db.add(db_release)
             for tag in release.tags:
-                db_release.tags.append(lastfmcache.ReleaseTag(tag, release.tags[tag]))
+                db_release.tags.append(LastfmCache.ReleaseTag(tag, release.tags[tag]))
             for track in release.tracks:
                 db_release.tracks.append(
-                    lastfmcache.ReleaseTrack(release.tracks[track].track_number, release.tracks[track].track_name,
+                    LastfmCache.ReleaseTrack(release.tracks[track].track_number, release.tracks[track].track_name,
                                              release.tracks[track].artist_name, release.tracks[track].listener_count))
             self.db.commit()
 
         return release
 
-    def get_top_user_releases(self, username: str) -> List[lastfm_top_release]:
+    def get_top_user_releases(self, username: str) -> List[LastfmTopRelease]:
 
         now = datetime.datetime.now()
         expiry = now - datetime.timedelta(seconds=self.cache_validity)
         top_releases = []
 
         if self.db:
-            results = self.db.query(lastfmcache.TopUserRelease)\
-                .filter_by(username=username)\
-                .filter(lastfmcache.TopUserRelease.fetched > expiry)\
-                .order_by(lastfmcache.TopUserRelease.index)\
+            results = self.db.query(LastfmCache.TopUserRelease) \
+                .filter_by(username=username) \
+                .filter(LastfmCache.TopUserRelease.fetched > expiry) \
+                .order_by(LastfmCache.TopUserRelease.index) \
                 .all()
 
             if len(results):
                 for curr in results:
-                    top_releases.append(lastfm_top_release(curr.index, curr.scrobbles, curr.artist, curr.title))
+                    top_releases.append(LastfmTopRelease(curr.index, curr.scrobbles, curr.artist, curr.title))
 
                 return top_releases
 
         page_num = 1
 
-        while(True):
+        while True:
             resp = requests.get("https://www.last.fm/user/{username}/library/albums?page={page_num}"
                                 .format(username=username, page_num=page_num), allow_redirects=False)
             if resp.status_code == 302:
@@ -409,34 +415,33 @@ class lastfmcache:
             soup = bs4.BeautifulSoup(resp.text, 'html5lib')
 
             if not soup.find(id="top-albums-section"):
-                raise lastfmcache.lastfmcacheException("Could not find LastFM data")
+                raise LastfmCache.LastfmCacheError("Could not find LastFM data")
 
             for row in soup.find(id="top-albums-section").findAll(class_="chartlist-row"):
-                index = int(str(row.find(class_="chartlist-index").contents[0]).replace(",",""))
-                scrobbles = int(str(row.find(class_="chartlist-count-bar-value").contents[0]).replace(",",""))
+                index = int(str(row.find(class_="chartlist-index").contents[0]).replace(",", ""))
+                scrobbles = int(str(row.find(class_="chartlist-count-bar-value").contents[0]).replace(",", ""))
                 title = str(row.find(class_="chartlist-name").find("a").contents[0])
                 artist = str(row.find(class_="chartlist-artist").find("a").contents[0])
 
-                top_releases.append(lastfm_top_release(index, scrobbles, artist, title))
+                top_releases.append(LastfmTopRelease(index, scrobbles, artist, title))
 
             page_num += 1
 
         if self.db:
-            self.db.query(lastfmcache.TopUserRelease).filter(lastfmcache.TopUserRelease.username == username).delete()
+            self.db.query(LastfmCache.TopUserRelease).filter(LastfmCache.TopUserRelease.username == username).delete()
             self.db.commit()
 
             for release in top_releases:
-                self.db.add(lastfmcache.TopUserRelease(now, username, release.index,
+                self.db.add(LastfmCache.TopUserRelease(now, username, release.index,
                                                        release.scrobbles, release.artist, release.title))
                 self.db.commit()
 
         return top_releases
 
-
-
     # web tags have no score, however API tags are frequently missing
     # sometimes API tags all have identical scores, yet web ordering is superior
-    def combine_tags(self, api_tags: Dict[str, int], web_tags: Dict[str, int]) -> Dict[str, int]:
+    @staticmethod
+    def combine_tags(api_tags: Dict[str, int], web_tags: Dict[str, int]) -> Dict[str, int]:
 
         combined_tags = api_tags.copy()
 
