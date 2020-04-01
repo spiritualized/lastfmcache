@@ -260,8 +260,24 @@ class LastfmCache:
         except pylast.WSError:
             pass
 
+        # Remove "star" images
+        if "2a96cbd8b46e442fc41c2b86b821562f" in artist.cover_image:
+            artist.cover_image = None
+
         for tag in api_artist.get_top_tags():
             artist.tags[tag.item.name.lower()] = tag.weight
+
+        # only fetch the HTML page if the artist cover image is missing
+        if not artist.cover_image:
+            url_artist_name = LastfmCache.__lastfm_urlencode(artist_name)
+            resp = requests.get("https://www.last.fm/music/{artist}".format(artist=url_artist_name))
+
+            if resp.status_code == 404:
+                raise LastfmCache.LastfmCacheError("Artist '{artist_name}' not found.".format(artist_name=artist_name))
+            soup = bs4.BeautifulSoup(resp.content, 'html5lib')
+
+            if soup.find(class_="header-new-background-image"):
+                artist.cover_image = soup.find(class_="header-new-background-image").get("content")
 
         # update/create in the cache entry
         if self.db:
@@ -317,9 +333,10 @@ class LastfmCache:
         for tag in api_release.get_top_tags():
             api_tags[tag.item.name.lower()] = tag.weight
 
-        url_artist_name = artist_name.replace("/", "%2F").replace("#", "%23")
-        url_release_name = release_name.replace("/", "%2F").replace("#", "%23")
-        resp = requests.get("https://www.last.fm/music/{0}/{1}".format(url_artist_name, url_release_name))
+        url_artist_name = LastfmCache.__lastfm_urlencode(artist_name)
+        url_release_name = LastfmCache.__lastfm_urlencode(release_name)
+        resp = requests.get("https://www.last.fm/music/{artist}/{release}"
+                            .format(artist=url_artist_name, release=url_release_name))
 
         if resp.status_code == 404:
             raise LastfmCache.LastfmCacheError("Release '{0}' by {1} not found.".format(release_name, artist_name))
@@ -482,3 +499,7 @@ class LastfmCache:
             recombined_partitions.update(reordered_partition)
 
         return recombined_partitions
+
+    @staticmethod
+    def __lastfm_urlencode(str_in: str) -> str:
+        return str_in.replace("/", "%2F").replace("#", "%23")
