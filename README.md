@@ -22,6 +22,9 @@ lastfm.enable_file_cache()  # optional
 
 artist = lastfm.get_artist("Pink Floyd")
 release = lastfm.get_release("Pink Floyd", "Dark Side of the Moon")
+
+top_releases = lastfm.get_top_user_releases("username")
+
 ```
 
 ### Artist class:
@@ -31,7 +34,7 @@ artist.listener_count: int
 artist.play_count: int
 artist.biography: str
 artist.cover_image: str
-artist.tags: OrderedDict[str, int] # tag -> weight
+artist.tags: OrderedDict[str, int]      # tag -> weight
 ```
 ### Release class:
 ```
@@ -42,8 +45,8 @@ listener_count: int
 play_count: int
 cover_image: str
 has_cover_image: bool
-tags = OrderedDict[str, int] # tag -> weight
-tracks = OrderedDict[int, Track] # track number -> track
+tags = OrderedDict[str, int]            # tag -> weight
+tracks = OrderedDict[int, Track]        # track number -> track
 ```
 
 ### Track class
@@ -52,6 +55,14 @@ track_number: int
 track_name: str
 artist_name: str
 listener_count: int
+```
+
+### Top release class
+```
+index: int          # ranking of the release
+scrobbles: int
+artist: str
+title: str
 ```
 
 ## Installation
