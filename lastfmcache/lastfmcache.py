@@ -102,6 +102,20 @@ class LastfmCache:
     class LastfmCacheError(Exception):
         pass
 
+    class ReleaseNotFoundError(Exception):
+        def __init__(self, release_name, artist_name):
+            self.release_name = release_name
+            self.artist_name = artist_name
+
+            super().__init__("Release '{0}' by {1} not found.".format(self.release_name, self.artist_name))
+
+    class ArtistNotFoundError(Exception):
+        def __init__(self, artist_name):
+            self.artist_name = artist_name
+
+            super().__init__("Artist '{0}' not found.".format(self.artist_name))
+
+
     __db_base__ = declarative_base()
 
     class Artist(__db_base__):
@@ -215,6 +229,30 @@ class LastfmCache:
             self.artist = artist
             self.title = title
 
+    class NotFoundArtist(__db_base__):
+        __tablename__ = "not_found_artists"
+
+        id = sqlalchemy.Column(sqlalchemy.Integer, primary_key=True, autoincrement=True)
+        fetched = sqlalchemy.Column(sqlalchemy.DateTime, nullable=False)
+        artist_name = sqlalchemy.Column(sqlalchemy.String(512, collation='NOCASE'), nullable=False)
+
+        def __init__(self, artist_name: str) -> None:
+            self.fetched = datetime.datetime.now()
+            self.artist_name = artist_name
+
+    class NotFoundRelease(__db_base__):
+        __tablename__ = "not_found_releases"
+
+        id = sqlalchemy.Column(sqlalchemy.Integer, primary_key=True, autoincrement=True)
+        fetched = sqlalchemy.Column(sqlalchemy.DateTime, nullable=False)
+        artist_name = sqlalchemy.Column(sqlalchemy.String(512, collation='NOCASE'), nullable=False)
+        release_name = sqlalchemy.Column(sqlalchemy.String(512, collation='NOCASE'), nullable=False)
+
+        def __init__(self, artist_name: str, release_name: str) -> None:
+            self.fetched = datetime.datetime.now()
+            self.artist_name = artist_name
+            self.release_name = release_name
+
     # connect to database
     def enable_file_cache(self, cache_validity: int = 86400 * 28) -> None:
 
@@ -246,21 +284,29 @@ class LastfmCache:
 
                 return artist
 
+            self.db.query(LastfmCache.NotFoundArtist).filter_by(artist_name=artist_name).first()
+            if db_artist and db_artist.fetched > datetime.datetime.now() - datetime.timedelta(
+                seconds=self.cache_validity):
+                raise LastfmCache.ArtistNotFoundError(artist_name)
+
         try:
             api_artist = self.api.get_artist(artist_name)
             artist.artist_name = api_artist.get_name(properly_capitalized=True)
             artist.listener_count = api_artist.get_listener_count()
             artist.play_count = api_artist.get_playcount()
             artist.cover_image = api_artist.get_cover_image()
-        except pylast.WSError:
-            raise LastfmCache.LastfmCacheError("LastFM artist not found: '{0}'".format(artist_name))
-
-        try:
             artist.biography = api_artist.get_bio_content().split('<a href="https://www.last.fm/music/')[0].strip()
-        except pylast.WSError:
+
+        except pylast.WSError as e:
+            if e.details == "The artist you supplied could not be found":
+                self.db.add(LastfmCache.NotFoundArtist(artist_name))
+                self.db.commit()
+
+                raise LastfmCache.ArtistNotFoundError(artist_name) from e
+
+        except AttributeError:  # TODO remove this workaround for pylast failure on looking up an empty biography
             pass
-        except AttributeError:
-            pass
+
 
         # Remove "star" images
         if artist.cover_image and "2a96cbd8b46e442fc41c2b86b821562f" in artist.cover_image:
@@ -321,11 +367,21 @@ class LastfmCache:
 
                 return release
 
+            db_release = self.db.query(LastfmCache.NotFoundRelease).filter_by(artist_name=artist_name,
+                                                                      release_name=release_name).first()
+            if db_release and db_release.fetched > datetime.datetime.now() - datetime.timedelta(
+                seconds=self.cache_validity):
+                raise LastfmCache.ReleaseNotFoundError(artist_name, release_name)
+
         api_release = self.api.get_album(artist_name, release_name)
         try:
             release.release_name = api_release.get_title(properly_capitalized=True)
-        except pylast.WSError:
-            raise LastfmCache.LastfmCacheError("Release '{0}' by {1} not found.".format(release_name, artist_name))
+        except pylast.WSError as e:
+            if e.details == "Album not found":
+                self.db.add(LastfmCache.NotFoundRelease(release_name, artist_name))
+                self.db.commit()
+                raise LastfmCache.ReleaseNotFoundError(release_name, artist_name) from e
+
         release.artist_name = api_release.get_artist().get_name(properly_capitalized=True)
         release.listener_count = api_release.get_listener_count()
         release.play_count = api_release.get_playcount()
