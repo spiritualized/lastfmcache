@@ -259,9 +259,11 @@ class LastfmCache:
             artist.biography = api_artist.get_bio_content().split('<a href="https://www.last.fm/music/')[0].strip()
         except pylast.WSError:
             pass
+        except AttributeError:
+            pass
 
         # Remove "star" images
-        if "2a96cbd8b46e442fc41c2b86b821562f" in artist.cover_image:
+        if artist.cover_image and "2a96cbd8b46e442fc41c2b86b821562f" in artist.cover_image:
             artist.cover_image = None
 
         for tag in api_artist.get_top_tags():
