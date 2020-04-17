@@ -321,7 +321,7 @@ class LastfmCache:
             resp = requests.get("https://www.last.fm/music/{artist}".format(artist=url_artist_name))
 
             if resp.status_code == 404:
-                raise LastfmCache.LastfmCacheError("Artist '{artist_name}' not found.".format(artist_name=artist_name))
+                raise LastfmCache.ArtistNotFoundError(artist_name)
             soup = bs4.BeautifulSoup(resp.content, 'html5lib')
 
             if soup.find(class_="header-new-background-image"):
@@ -371,7 +371,7 @@ class LastfmCache:
                                                                       release_name=release_name).first()
             if db_release and db_release.fetched > datetime.datetime.now() - datetime.timedelta(
                 seconds=self.cache_validity):
-                raise LastfmCache.ReleaseNotFoundError(artist_name, release_name)
+                raise LastfmCache.ReleaseNotFoundError(release_name, artist_name)
 
         api_release = self.api.get_album(artist_name, release_name)
         try:
@@ -397,7 +397,7 @@ class LastfmCache:
                             .format(artist=url_artist_name, release=url_release_name))
 
         if resp.status_code == 404:
-            raise LastfmCache.LastfmCacheError("Release '{0}' by {1} not found.".format(release_name, artist_name))
+            raise LastfmCache.ReleaseNotFoundError(release_name, artist_name)
 
         soup = bs4.BeautifulSoup(resp.content, 'html5lib')
 
