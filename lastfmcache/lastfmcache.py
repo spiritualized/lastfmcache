@@ -387,6 +387,7 @@ class LastfmCache:
         api_release = self.api.get_album(artist_name, release_name)
         try:
             release.release_name = api_release.get_title(properly_capitalized=True)
+            release.artist_name = api_release.get_artist().get_name(properly_capitalized=True)
         except pylast.NetworkError as e:
             raise LastfmCache.ConnectionError from e
         except pylast.WSError as e:
@@ -399,7 +400,6 @@ class LastfmCache:
         except pylast.MalformedResponseError as e:
             raise LastfmCache.LastfmCacheError from e
 
-        release.artist_name = api_release.get_artist().get_name(properly_capitalized=True)
         release.listener_count = api_release.get_listener_count()
         release.play_count = api_release.get_playcount()
         release.cover_image = api_release.get_cover_image()
