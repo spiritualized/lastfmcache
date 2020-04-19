@@ -102,6 +102,9 @@ class LastfmCache:
     class LastfmCacheError(Exception):
         pass
 
+    class ConnectionError(Exception):
+        pass
+
     class ReleaseNotFoundError(Exception):
         def __init__(self, release_name, artist_name):
             self.release_name = release_name
@@ -114,7 +117,6 @@ class LastfmCache:
             self.artist_name = artist_name
 
             super().__init__("Artist '{0}' not found.".format(self.artist_name))
-
 
     __db_base__ = declarative_base()
 
@@ -286,7 +288,7 @@ class LastfmCache:
 
             self.db.query(LastfmCache.NotFoundArtist).filter_by(artist_name=artist_name).first()
             if db_artist and db_artist.fetched > datetime.datetime.now() - datetime.timedelta(
-                seconds=self.cache_validity):
+                    seconds=self.cache_validity):
                 raise LastfmCache.ArtistNotFoundError(artist_name)
 
         try:
@@ -308,7 +310,6 @@ class LastfmCache:
 
         except AttributeError:  # TODO remove this workaround for pylast failure on looking up an empty biography
             pass
-
 
         # Remove "star" images
         if artist.cover_image and "2a96cbd8b46e442fc41c2b86b821562f" in artist.cover_image:
@@ -370,9 +371,9 @@ class LastfmCache:
                 return release
 
             db_release = self.db.query(LastfmCache.NotFoundRelease).filter_by(artist_name=artist_name,
-                                                                      release_name=release_name).first()
+                                                                              release_name=release_name).first()
             if db_release and db_release.fetched > datetime.datetime.now() - datetime.timedelta(
-                seconds=self.cache_validity):
+                    seconds=self.cache_validity):
                 raise LastfmCache.ReleaseNotFoundError(release_name, artist_name)
 
         api_release = self.api.get_album(artist_name, release_name)
@@ -400,15 +401,11 @@ class LastfmCache:
         url_artist_name = LastfmCache.__lastfm_urlencode(artist_name)
         url_release_name = LastfmCache.__lastfm_urlencode(release_name)
 
-        while True:
-            try:
-                resp = requests.get("https://www.last.fm/music/{artist}/{release}"
-                                    .format(artist=url_artist_name, release=url_release_name))
-                break
-            except requests.exceptions.ConnectionError:
-                logging.getLogger(__name__).error("Could not fetch release page from last.fm")
-                time.sleep(1)
-
+        try:
+            resp = requests.get("https://www.last.fm/music/{artist}/{release}"
+                                .format(artist=url_artist_name, release=url_release_name))
+        except requests.exceptions.ConnectionError as e:
+            raise LastfmCache.ConnectionError from e
 
         if resp.status_code == 404:
             raise LastfmCache.ReleaseNotFoundError(release_name, artist_name)
@@ -450,7 +447,7 @@ class LastfmCache:
                 track_name = row.find(class_="chartlist-name").find("a").get_text()
                 listener_count = str(
                     row.find(class_="chartlist-count-bar").find(class_="chartlist-count-bar-value")
-                    .next.replace(",", "")).strip()
+                        .next.replace(",", "")).strip()
                 listener_count = str(listener_count) if listener_count else 0
                 track_artist = None
                 if row.find(class_="chartlist-artist").find("a"):
