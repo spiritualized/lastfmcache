@@ -118,6 +118,7 @@ class LastfmCache:
 
             super().__init__("Artist '{0}' not found.".format(self.artist_name))
 
+
     __db_base__ = declarative_base()
 
     class Artist(__db_base__):
@@ -288,7 +289,7 @@ class LastfmCache:
 
             self.db.query(LastfmCache.NotFoundArtist).filter_by(artist_name=artist_name).first()
             if db_artist and db_artist.fetched > datetime.datetime.now() - datetime.timedelta(
-                    seconds=self.cache_validity):
+                seconds=self.cache_validity):
                 raise LastfmCache.ArtistNotFoundError(artist_name)
 
         try:
@@ -298,6 +299,9 @@ class LastfmCache:
             artist.play_count = api_artist.get_playcount()
             artist.cover_image = api_artist.get_cover_image()
             artist.biography = api_artist.get_bio_content().split('<a href="https://www.last.fm/music/')[0].strip()
+
+        except pylast.NetworkError as e:
+            raise LastfmCache.ConnectionError from e
 
         except pylast.WSError as e:
             if e.details == "The artist you supplied could not be found":
@@ -311,6 +315,7 @@ class LastfmCache:
         except AttributeError:  # TODO remove this workaround for pylast failure on looking up an empty biography
             pass
 
+
         # Remove "star" images
         if artist.cover_image and "2a96cbd8b46e442fc41c2b86b821562f" in artist.cover_image:
             artist.cover_image = None
@@ -321,7 +326,10 @@ class LastfmCache:
         # only fetch the HTML page if the artist cover image is missing
         if not artist.cover_image:
             url_artist_name = LastfmCache.__lastfm_urlencode(artist_name)
-            resp = requests.get("https://www.last.fm/music/{artist}".format(artist=url_artist_name))
+            try:
+                resp = requests.get("https://www.last.fm/music/{artist}".format(artist=url_artist_name))
+            except requests.exceptions.ConnectionError as e:
+                raise LastfmCache.ConnectionError from e
 
             if resp.status_code == 404:
                 raise LastfmCache.ArtistNotFoundError(artist_name)
@@ -371,14 +379,16 @@ class LastfmCache:
                 return release
 
             db_release = self.db.query(LastfmCache.NotFoundRelease).filter_by(artist_name=artist_name,
-                                                                              release_name=release_name).first()
+                                                                      release_name=release_name).first()
             if db_release and db_release.fetched > datetime.datetime.now() - datetime.timedelta(
-                    seconds=self.cache_validity):
+                seconds=self.cache_validity):
                 raise LastfmCache.ReleaseNotFoundError(release_name, artist_name)
 
         api_release = self.api.get_album(artist_name, release_name)
         try:
             release.release_name = api_release.get_title(properly_capitalized=True)
+        except pylast.NetworkError as e:
+            raise LastfmCache.ConnectionError from e
         except pylast.WSError as e:
             if e.details == "Album not found":
                 self.db.add(LastfmCache.NotFoundRelease(release_name, artist_name))
@@ -406,6 +416,7 @@ class LastfmCache:
                                 .format(artist=url_artist_name, release=url_release_name))
         except requests.exceptions.ConnectionError as e:
             raise LastfmCache.ConnectionError from e
+
 
         if resp.status_code == 404:
             raise LastfmCache.ReleaseNotFoundError(release_name, artist_name)
@@ -447,7 +458,7 @@ class LastfmCache:
                 track_name = row.find(class_="chartlist-name").find("a").get_text()
                 listener_count = str(
                     row.find(class_="chartlist-count-bar").find(class_="chartlist-count-bar-value")
-                        .next.replace(",", "")).strip()
+                    .next.replace(",", "")).strip()
                 listener_count = str(listener_count) if listener_count else 0
                 track_artist = None
                 if row.find(class_="chartlist-artist").find("a"):
