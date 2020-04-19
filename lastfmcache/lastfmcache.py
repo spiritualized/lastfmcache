@@ -303,6 +303,8 @@ class LastfmCache:
                 self.db.commit()
 
                 raise LastfmCache.ArtistNotFoundError(artist_name) from e
+            else:
+                raise e
 
         except AttributeError:  # TODO remove this workaround for pylast failure on looking up an empty biography
             pass
@@ -381,6 +383,10 @@ class LastfmCache:
                 self.db.add(LastfmCache.NotFoundRelease(release_name, artist_name))
                 self.db.commit()
                 raise LastfmCache.ReleaseNotFoundError(release_name, artist_name) from e
+            else:
+                raise e
+        except pylast.MalformedResponseError as e:
+            raise LastfmCache.LastfmCacheError from e
 
         release.artist_name = api_release.get_artist().get_name(properly_capitalized=True)
         release.listener_count = api_release.get_listener_count()
@@ -393,8 +399,16 @@ class LastfmCache:
 
         url_artist_name = LastfmCache.__lastfm_urlencode(artist_name)
         url_release_name = LastfmCache.__lastfm_urlencode(release_name)
-        resp = requests.get("https://www.last.fm/music/{artist}/{release}"
-                            .format(artist=url_artist_name, release=url_release_name))
+
+        while True:
+            try:
+                resp = requests.get("https://www.last.fm/music/{artist}/{release}"
+                                    .format(artist=url_artist_name, release=url_release_name))
+                break
+            except requests.exceptions.ConnectionError:
+                logging.getLogger(__name__).error("Could not fetch release page from last.fm")
+                time.sleep(1)
+
 
         if resp.status_code == 404:
             raise LastfmCache.ReleaseNotFoundError(release_name, artist_name)
