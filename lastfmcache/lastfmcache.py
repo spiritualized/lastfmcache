@@ -2,7 +2,6 @@ from collections import OrderedDict
 from typing import Dict, List
 
 import pylast
-from pylast import _Opus
 import bs4
 import requests
 import datetime
@@ -117,7 +116,6 @@ class LastfmCache:
             self.artist_name = artist_name
 
             super().__init__("Artist '{0}' not found.".format(self.artist_name))
-
 
     __db_base__ = declarative_base()
 
@@ -289,9 +287,10 @@ class LastfmCache:
 
             self.db.query(LastfmCache.NotFoundArtist).filter_by(artist_name=artist_name).first()
             if db_artist and db_artist.fetched > datetime.datetime.now() - datetime.timedelta(
-                seconds=self.cache_validity):
+                    seconds=self.cache_validity):
                 raise LastfmCache.ArtistNotFoundError(artist_name)
 
+        api_artist = None
         try:
             api_artist = self.api.get_artist(artist_name)
             artist.artist_name = api_artist.get_name(properly_capitalized=True)
@@ -315,13 +314,15 @@ class LastfmCache:
         except AttributeError:  # TODO remove this workaround for pylast failure on looking up an empty biography
             pass
 
-
         # Remove "star" images
         if artist.cover_image and "2a96cbd8b46e442fc41c2b86b821562f" in artist.cover_image:
             artist.cover_image = None
 
-        for tag in api_artist.get_top_tags():
-            artist.tags[tag.item.name.lower()] = tag.weight
+        try:
+            for tag in api_artist.get_top_tags():
+                artist.tags[tag.item.name.lower()] = tag.weight
+        except pylast.MalformedResponseError as e:
+            raise LastfmCache.LastfmCacheError from e
 
         # only fetch the HTML page if the artist cover image is missing
         if not artist.cover_image:
@@ -379,15 +380,19 @@ class LastfmCache:
                 return release
 
             db_release = self.db.query(LastfmCache.NotFoundRelease).filter_by(artist_name=artist_name,
-                                                                      release_name=release_name).first()
+                                                                              release_name=release_name).first()
             if db_release and db_release.fetched > datetime.datetime.now() - datetime.timedelta(
-                seconds=self.cache_validity):
+                    seconds=self.cache_validity):
                 raise LastfmCache.ReleaseNotFoundError(release_name, artist_name)
 
         api_release = self.api.get_album(artist_name, release_name)
         try:
             release.release_name = api_release.get_title(properly_capitalized=True)
             release.artist_name = api_release.get_artist().get_name(properly_capitalized=True)
+            release.listener_count = api_release.get_listener_count()
+            release.play_count = api_release.get_playcount()
+            release.cover_image = api_release.get_cover_image()
+
         except pylast.NetworkError as e:
             raise LastfmCache.ConnectionError from e
         except pylast.WSError as e:
@@ -395,14 +400,12 @@ class LastfmCache:
                 self.db.add(LastfmCache.NotFoundRelease(release_name, artist_name))
                 self.db.commit()
                 raise LastfmCache.ReleaseNotFoundError(release_name, artist_name) from e
+            elif e.details == "Operation failed - Most likely the backend service failed. Please try again.":
+                raise LastfmCache.ConnectionError from e
             else:
                 raise e
         except pylast.MalformedResponseError as e:
             raise LastfmCache.LastfmCacheError from e
-
-        release.listener_count = api_release.get_listener_count()
-        release.play_count = api_release.get_playcount()
-        release.cover_image = api_release.get_cover_image()
 
         api_tags = OrderedDict()
         for tag in api_release.get_top_tags():
@@ -416,7 +419,6 @@ class LastfmCache:
                                 .format(artist=url_artist_name, release=url_release_name))
         except requests.exceptions.ConnectionError as e:
             raise LastfmCache.ConnectionError from e
-
 
         if resp.status_code == 404:
             raise LastfmCache.ReleaseNotFoundError(release_name, artist_name)
