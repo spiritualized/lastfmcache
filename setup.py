@@ -9,10 +9,12 @@ setup(
     keywords = ['lastfm', 'python', 'cache', 'api'],
     install_requires = [
                     'bs4',
-                    'pylast',
                     'requests',
                     'html5lib',
+                    'pylast',
+                    'pymysql',
                     'sqlalchemy',
+                    'sqlalchemy-utils'
                 ],
 
     classifiers = [
