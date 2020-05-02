@@ -9,6 +9,7 @@ import sqlalchemy
 import sqlalchemy.orm
 import sqlalchemy.event
 import sqlalchemy.pool
+from sqlalchemy import UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
 import sqlite3
 
@@ -23,18 +24,20 @@ def set_sqlite_pragma(dbapi_connection, connection_record):
         cursor.close()
 
 
-def sqlite_nocase(is_sqlite: bool) -> None:
-    collation = 'NOCASE' if is_sqlite else None
+def sqlite_nocase() -> None:
 
-    #cols = [LastfmCache.Artist.__dict__[x] for x in vars(LastfmCache.Artist)
+    # cols = [LastfmCache.Artist.__dict__[x] for x in vars(LastfmCache.Artist)
     #   if isinstance(LastfmCache.Artist.__dict__[x], InstrumentedAttribute)]:
 
     for col in [LastfmCache.Artist.artist_name, LastfmCache.Release.artist_name, LastfmCache.Release.release_name,
                 LastfmCache.ReleaseTrack.track_name, LastfmCache.ReleaseTrack.track_artist,
                 LastfmCache.TopUserRelease.username, LastfmCache.TopUserRelease.artist,
                 LastfmCache.TopUserRelease.title, LastfmCache.NotFoundArtist.artist_name,
-                LastfmCache.NotFoundRelease.artist_name, LastfmCache.NotFoundRelease.release_name]:
-        col.type.collation = collation
+                LastfmCache.NotFoundRelease.artist_name, LastfmCache.NotFoundRelease.release_name,
+                LastfmCache.ReleaseMap.artist_name, LastfmCache.ReleaseMap.release_name_src,
+                LastfmCache.ReleaseMap.release_name_dest]:
+        col.type.collation = 'NOCASE'
+
 
 class LastfmArtist:
 
@@ -139,7 +142,7 @@ class LastfmCache:
 
         id = sqlalchemy.Column(sqlalchemy.Integer, primary_key=True, autoincrement=True)
         fetched = sqlalchemy.Column(sqlalchemy.DateTime, nullable=False)
-        artist_name = sqlalchemy.Column(sqlalchemy.String(512), nullable=False)
+        artist_name = sqlalchemy.Column(sqlalchemy.String(256), nullable=False, unique=True)
         listener_count = sqlalchemy.Column(sqlalchemy.Integer, autoincrement=True)
         play_count = sqlalchemy.Column(sqlalchemy.Integer, autoincrement=True)
         cover_image = sqlalchemy.Column(sqlalchemy.String(512), nullable=True)
@@ -169,13 +172,23 @@ class LastfmCache:
             self.tag = tag
             self.score = score
 
+    class ArtistMap(__db_base__):
+        __tablename__ = "artist_map"
+
+        artist_name_src = sqlalchemy.Column(sqlalchemy.String(256), nullable=False, primary_key=True)
+        artist_name_dest = sqlalchemy.Column(sqlalchemy.String(256), nullable=False, primary_key=True)
+
+        def __init__(self, artist_name_src: str, artist_name_dest: str) -> None:
+            self.artist_name_src = artist_name_src
+            self.artist_name_dest = artist_name_dest
+
     class Release(__db_base__):
         __tablename__ = "releases"
 
         id = sqlalchemy.Column(sqlalchemy.Integer, primary_key=True, autoincrement=True)
         fetched = sqlalchemy.Column(sqlalchemy.DateTime, nullable=False)
-        artist_name = sqlalchemy.Column(sqlalchemy.String(512), nullable=False)
-        release_name = sqlalchemy.Column(sqlalchemy.String(512), nullable=False)
+        artist_name = sqlalchemy.Column(sqlalchemy.String(256), nullable=False)
+        release_name = sqlalchemy.Column(sqlalchemy.String(256), nullable=False)
         release_date = sqlalchemy.Column(sqlalchemy.String(10))
         listener_count = sqlalchemy.Column(sqlalchemy.Integer, autoincrement=True)
         play_count = sqlalchemy.Column(sqlalchemy.Integer, autoincrement=True)
@@ -185,6 +198,10 @@ class LastfmCache:
                                            cascade="all, delete-orphan")
         tracks = sqlalchemy.orm.relationship("ReleaseTrack", order_by="ReleaseTrack.track_number",
                                              cascade="all, delete-orphan")
+
+        __table_args__ = (
+            UniqueConstraint(artist_name, release_name),
+        )
 
         def __init__(self, artist_name: str, release_name: str, release_date: datetime, listener_count: int,
                      play_count: int, cover_image: str) -> None:
@@ -217,7 +234,7 @@ class LastfmCache:
                                        primary_key=True)
         track_number = sqlalchemy.Column(sqlalchemy.Integer, nullable=False, primary_key=True)
         track_name = sqlalchemy.Column(sqlalchemy.String(512), nullable=False)
-        track_artist = sqlalchemy.Column(sqlalchemy.String(512), nullable=True)
+        track_artist = sqlalchemy.Column(sqlalchemy.String(256), nullable=True)
         listener_count = sqlalchemy.Column(sqlalchemy.Integer, nullable=False)
 
         def __init__(self, track_number: int, track_name: str, track_artist: str, listener_count: int) -> None:
@@ -226,6 +243,18 @@ class LastfmCache:
             self.track_artist = track_artist
             self.listener_count = listener_count
 
+    class ReleaseMap(__db_base__):
+        __tablename__ = "release_map"
+
+        artist_name = sqlalchemy.Column(sqlalchemy.String(256), nullable=False, primary_key=True)
+        release_name_src = sqlalchemy.Column(sqlalchemy.String(256), nullable=False, primary_key=True)
+        release_name_dest = sqlalchemy.Column(sqlalchemy.String(256), nullable=False, primary_key=True)
+
+        def __init__(self, artist_name: str, release_name_src: str, release_name_dest: str) -> None:
+            self.artist_name = artist_name
+            self.release_name_src = release_name_src
+            self.release_name_dest = release_name_dest
+
     class TopUserRelease(__db_base__):
         __tablename__ = "top_user_releases"
 
@@ -233,8 +262,8 @@ class LastfmCache:
         username = sqlalchemy.Column(sqlalchemy.String(512), nullable=False, primary_key=True)
         index = sqlalchemy.Column(sqlalchemy.Integer, nullable=False, primary_key=True)
         scrobbles = sqlalchemy.Column(sqlalchemy.Integer, nullable=False)
-        artist = sqlalchemy.Column(sqlalchemy.String(512), nullable=False)
-        title = sqlalchemy.Column(sqlalchemy.String(512), nullable=False)
+        artist = sqlalchemy.Column(sqlalchemy.String(256), nullable=False)
+        title = sqlalchemy.Column(sqlalchemy.String(256), nullable=False)
 
         def __init__(self, fetched: datetime, username: str, index: int, scrobbles: int, artist: str,
                      title: str) -> None:
@@ -250,7 +279,7 @@ class LastfmCache:
 
         id = sqlalchemy.Column(sqlalchemy.Integer, primary_key=True, autoincrement=True)
         fetched = sqlalchemy.Column(sqlalchemy.DateTime, nullable=False)
-        artist_name = sqlalchemy.Column(sqlalchemy.String(512), nullable=False)
+        artist_name = sqlalchemy.Column(sqlalchemy.String(256), nullable=False)
 
         def __init__(self, artist_name: str) -> None:
             self.fetched = datetime.datetime.now()
@@ -261,8 +290,8 @@ class LastfmCache:
 
         id = sqlalchemy.Column(sqlalchemy.Integer, primary_key=True, autoincrement=True)
         fetched = sqlalchemy.Column(sqlalchemy.DateTime, nullable=False)
-        artist_name = sqlalchemy.Column(sqlalchemy.String(512), nullable=False)
-        release_name = sqlalchemy.Column(sqlalchemy.String(512), nullable=False)
+        artist_name = sqlalchemy.Column(sqlalchemy.String(256), nullable=False)
+        release_name = sqlalchemy.Column(sqlalchemy.String(256), nullable=False)
 
         def __init__(self, artist_name: str, release_name: str) -> None:
             self.fetched = datetime.datetime.now()
@@ -273,7 +302,7 @@ class LastfmCache:
     def enable_file_cache(self, cache_validity: int = 86400 * 28) -> None:
         engine = sqlalchemy.create_engine("sqlite:///cache.db?check_same_thread=False",
                                           poolclass=sqlalchemy.pool.SingletonThreadPool)
-        sqlite_nocase(True)
+        sqlite_nocase()
         LastfmCache.__db_base__.metadata.create_all(engine)
 
         db = sqlalchemy.orm.sessionmaker(engine)
@@ -288,7 +317,6 @@ class LastfmCache:
             create_database(url, encoding='utf8mb4')
 
         engine = sqlalchemy.create_engine(url, encoding='utf-8')
-        sqlite_nocase(False)
         LastfmCache.__db_base__.metadata.create_all(engine)
 
         db = sqlalchemy.orm.sessionmaker(engine)
@@ -302,6 +330,10 @@ class LastfmCache:
         db_artist = None
 
         if self.db:
+            artist_remap = self.db.query(LastfmCache.ArtistMap).filter_by(artist_name_src=artist_name).first()
+            if artist_remap:
+                artist_name = artist_remap.artist_name_dest
+
             db_artist = self.db.query(LastfmCache.Artist).filter_by(artist_name=artist_name).first()
             if db_artist and db_artist.fetched > datetime.datetime.now() - datetime.timedelta(
                     seconds=self.cache_validity):
@@ -382,6 +414,11 @@ class LastfmCache:
                 self.db.commit()
             for tag in artist.tags:
                 db_artist.tags.append(LastfmCache.ArtistTag(tag, artist.tags[tag]))
+
+            # create a mapping entry, if the request artist differs
+            if artist_name.strip().lower() != artist.artist_name.lower():
+                self.db.add(LastfmCache.ArtistMap(artist_name.strip(), artist.artist_name))
+
             self.db.commit()
 
         return artist
@@ -393,6 +430,11 @@ class LastfmCache:
         db_release = None
 
         if self.db:
+            release_remap = self.db.query(LastfmCache.ReleaseMap)\
+                .filter_by(artist_name=artist_name, release_name_src=release_name).first()
+            if release_remap:
+                release_name = release_remap.release_name_dest
+
             db_release = self.db.query(LastfmCache.Release).filter_by(artist_name=artist_name,
                                                                       release_name=release_name).first()
             if db_release and db_release.fetched > datetime.datetime.now() - datetime.timedelta(
@@ -515,6 +557,12 @@ class LastfmCache:
                 db_release.tracks.append(
                     LastfmCache.ReleaseTrack(release.tracks[track].track_number, release.tracks[track].track_name,
                                              release.tracks[track].artist_name, release.tracks[track].listener_count))
+
+            # create a mapping entry, if the request title differs
+            if artist_name.strip().lower() == release.artist_name.lower() and \
+                    release_name.strip().lower() != release.release_name.lower():
+                self.db.add(LastfmCache.ReleaseMap(release.artist_name, release_name.strip(), release.release_name))
+
             self.db.commit()
 
         return release
