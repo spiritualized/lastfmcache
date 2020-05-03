@@ -1,3 +1,5 @@
+from __future__ import annotations
+import json
 from collections import OrderedDict
 from typing import Dict, List
 
@@ -35,7 +37,8 @@ def sqlite_nocase() -> None:
                 LastfmCache.TopUserRelease.title, LastfmCache.NotFoundArtist.artist_name,
                 LastfmCache.NotFoundRelease.artist_name, LastfmCache.NotFoundRelease.release_name,
                 LastfmCache.ReleaseMap.artist_name, LastfmCache.ReleaseMap.release_name_src,
-                LastfmCache.ReleaseMap.release_name_dest]:
+                LastfmCache.ReleaseMap.release_name_dest, LastfmCache.ArtistMap.artist_name_src,
+                LastfmCache.ArtistMap.artist_name_dest]:
         col.type.collation = 'NOCASE'
 
 
@@ -61,6 +64,22 @@ class LastfmArtist:
                 Has biography: {4}
                 Tags: {5}""".format(self.artist_name, self.listener_count, self.play_count, has_cover_image,
                                     has_biography, tags)
+
+    @staticmethod
+    def from_json(json_str: str) -> LastfmArtist:
+        decoded = json.loads(json_str)
+        artist = LastfmArtist()
+        artist.artist_name = decoded['artist_name']
+        artist.listener_count = decoded['listener_count']
+        artist.play_count = decoded['play_count']
+        artist.biography = decoded['biography']
+        artist.cover_image = decoded['cover_image']
+        artist.tags = OrderedDict()
+
+        for tag in decoded['tags']:
+            artist.tags[tag] = decoded['tags'][tag]
+
+        return artist
 
 
 class LastfmRelease:
@@ -88,6 +107,30 @@ class LastfmRelease:
                 Tags: {5}""".format(self.release_name, self.listener_count, self.play_count, has_cover_image,
                                     self.release_date, tags)
 
+    @staticmethod
+    def from_json(json_str: str) -> LastfmRelease:
+        decoded = json.loads(json_str)
+        release = LastfmRelease()
+        release.release_name = decoded['release_name']
+        release.artist_name = decoded['artist_name']
+        release.release_date = decoded['release_date']
+        release.listener_count = decoded['listener_count']
+        release.play_count = decoded['play_count']
+        release.cover_image = decoded['cover_image']
+        release.has_cover_image = decoded['has_cover_image']
+        release.tags = OrderedDict()
+        release.tracks = OrderedDict()
+
+        for tag in decoded['tags']:
+            release.tags[tag] = decoded['tags'][tag]
+
+        for track in decoded['tracks']:
+            decoded_track = decoded['tracks'][track]
+            release.tracks[track] = LastfmTrack(decoded_track['track_number'], decoded_track['track_name'],
+                                                decoded_track['artist_name'], decoded_track['listener_count'])
+
+        return release
+
 
 class LastfmTrack:
 
@@ -109,12 +152,20 @@ class LastfmTopRelease:
 
 class LastfmCache:
 
-    def __init__(self, api_key: str, shared_secret: str) -> None:
-        self.api_key = api_key
-        self.shared_secret = shared_secret
-        self.api = pylast.LastFMNetwork(api_key=api_key, api_secret=shared_secret)
+    __default_url = "http://localhost:5000/lastfmcache/api"
+
+    def __init__(self, api_key: str = None, shared_secret: str = None, lastfmcache_api_url=__default_url) -> None:
         self.db = None
         self.cache_validity = None
+        self.api = None
+        self.lastfmcache_api_url = lastfmcache_api_url
+
+        if api_key and shared_secret:
+            self.api_key = api_key
+            self.shared_secret = shared_secret
+            self.api = pylast.LastFMNetwork(api_key=api_key, api_secret=shared_secret)
+        elif api_key or shared_secret:
+            raise ValueError("Provide both or neither of api_key and shared_secret")
 
     class LastfmCacheError(Exception):
         pass
@@ -277,9 +328,8 @@ class LastfmCache:
     class NotFoundArtist(__db_base__):
         __tablename__ = "not_found_artists"
 
-        id = sqlalchemy.Column(sqlalchemy.Integer, primary_key=True, autoincrement=True)
+        artist_name = sqlalchemy.Column(sqlalchemy.String(256), primary_key=True)
         fetched = sqlalchemy.Column(sqlalchemy.DateTime, nullable=False)
-        artist_name = sqlalchemy.Column(sqlalchemy.String(256), nullable=False)
 
         def __init__(self, artist_name: str) -> None:
             self.fetched = datetime.datetime.now()
@@ -288,10 +338,9 @@ class LastfmCache:
     class NotFoundRelease(__db_base__):
         __tablename__ = "not_found_releases"
 
-        id = sqlalchemy.Column(sqlalchemy.Integer, primary_key=True, autoincrement=True)
+        artist_name = sqlalchemy.Column(sqlalchemy.String(256), primary_key=True)
+        release_name = sqlalchemy.Column(sqlalchemy.String(256), primary_key=True)
         fetched = sqlalchemy.Column(sqlalchemy.DateTime, nullable=False)
-        artist_name = sqlalchemy.Column(sqlalchemy.String(256), nullable=False)
-        release_name = sqlalchemy.Column(sqlalchemy.String(256), nullable=False)
 
         def __init__(self, artist_name: str, release_name: str) -> None:
             self.fetched = datetime.datetime.now()
@@ -316,12 +365,89 @@ class LastfmCache:
         if not database_exists(url):
             create_database(url, encoding='utf8mb4')
 
-        engine = sqlalchemy.create_engine(url, encoding='utf-8')
+        engine = sqlalchemy.create_engine(url, encoding='utf-8', pool_recycle=3600)
         LastfmCache.__db_base__.metadata.create_all(engine)
 
         db = sqlalchemy.orm.sessionmaker(engine)
         self.db = sqlalchemy.orm.scoped_session(db)
         self.cache_validity = cache_validity
+
+    def lastfmcache_api_get_artist(self, artist_name) -> LastfmArtist:
+        escaped_artist_name = artist_name.replace("/", "%2F")
+        try:
+            resp = requests.get("{lastfmcache_api_url}/v1/artists/{artist}"
+                                .format(lastfmcache_api_url=self.lastfmcache_api_url, artist=escaped_artist_name))
+            if resp.status_code == 404:
+                self.db.add(LastfmCache.NotFoundArtist(artist_name))
+                self.db.commit()
+                raise LastfmCache.ArtistNotFoundError(artist_name)
+        except requests.exceptions.ConnectionError as e:
+            raise LastfmCache.ConnectionError from e
+        return LastfmArtist.from_json(resp.text)
+
+    def lastfmcache_api_get_release(self, artist_name: str, release_name: str) -> LastfmRelease:
+        escaped_artist_name = artist_name.replace("/", "%2F")
+        escaped_release_name = release_name.replace("/", "%2F")
+        try:
+            resp = requests.get("{lastfmcache_api_url}/v1/artists/{artist}/releases/{release}"
+                                .format(lastfmcache_api_url=self.lastfmcache_api_url, artist=escaped_artist_name,
+                                        release=escaped_release_name))
+            if resp.status_code == 404:
+                self.db.add(LastfmCache.NotFoundRelease(artist_name, release_name))
+                self.db.commit()
+                raise LastfmCache.ReleaseNotFoundError(release_name, artist_name)
+        except requests.exceptions.ConnectionError as e:
+            raise LastfmCache.ConnectionError from e
+        return LastfmRelease.from_json(resp.text)
+
+    def upsert_artist(self, req_artist_name: str, artist: LastfmArtist, db_artist: LastfmCache.Artist):
+        """update/create in the cache entry"""
+        if not self.db:
+            return
+
+        if db_artist:
+            db_artist.__init__(artist.artist_name, artist.listener_count, artist.play_count, artist.cover_image,
+                               artist.biography)
+        else:
+            db_artist = LastfmCache.Artist(artist.artist_name, artist.listener_count, artist.play_count,
+                                           artist.cover_image, artist.biography)
+            self.db.add(db_artist)
+            self.db.commit()
+        for tag in artist.tags:
+            db_artist.tags.append(LastfmCache.ArtistTag(tag, artist.tags[tag]))
+
+        # create a mapping entry, if the request artist differs
+        if req_artist_name.strip().lower() != artist.artist_name.lower():
+            self.db.add(LastfmCache.ArtistMap(req_artist_name.strip(), artist.artist_name))
+
+        self.db.commit()
+
+    def upsert_release(self, req_artist_name: str, req_release_name: str, release: LastfmRelease,
+                       db_release: LastfmCache.Release):
+        """update/create in the cache entry"""
+        if not self.db:
+            return
+
+        if db_release:
+            db_release.__init__(release.artist_name, release.release_name, release.release_date,
+                                release.listener_count, release.play_count, release.cover_image)
+        else:
+            db_release = LastfmCache.Release(release.artist_name, release.release_name, release.release_date,
+                                             release.listener_count, release.play_count, release.cover_image)
+            self.db.add(db_release)
+        for tag in release.tags:
+            db_release.tags.append(LastfmCache.ReleaseTag(tag, release.tags[tag]))
+        for track in release.tracks:
+            db_release.tracks.append(
+                LastfmCache.ReleaseTrack(release.tracks[track].track_number, release.tracks[track].track_name,
+                                         release.tracks[track].artist_name, release.tracks[track].listener_count))
+
+        # create a mapping entry, if the request title differs
+        if req_artist_name.strip().lower() == release.artist_name.lower() and \
+                req_release_name.strip().lower() != release.release_name.lower():
+            self.db.add(LastfmCache.ReleaseMap(release.artist_name, req_release_name.strip(), release.release_name))
+
+        self.db.commit()
 
     def get_artist(self, artist_name: str) -> LastfmArtist:
 
@@ -351,6 +477,11 @@ class LastfmCache:
             if db_artist and db_artist.fetched > datetime.datetime.now() - datetime.timedelta(
                     seconds=self.cache_validity):
                 raise LastfmCache.ArtistNotFoundError(artist_name)
+
+        if not self.api:
+            artist = self.lastfmcache_api_get_artist(artist_name)
+            self.upsert_artist(artist_name, artist, db_artist)
+            return artist
 
         api_artist = None
         try:
@@ -403,23 +534,7 @@ class LastfmCache:
                 artist.cover_image = soup.find(class_="header-new-background-image").get("content")
 
         # update/create in the cache entry
-        if self.db:
-            if db_artist:
-                db_artist.__init__(artist.artist_name, artist.listener_count, artist.play_count, artist.cover_image,
-                                   artist.biography)
-            else:
-                db_artist = LastfmCache.Artist(artist.artist_name, artist.listener_count, artist.play_count,
-                                               artist.cover_image, artist.biography)
-                self.db.add(db_artist)
-                self.db.commit()
-            for tag in artist.tags:
-                db_artist.tags.append(LastfmCache.ArtistTag(tag, artist.tags[tag]))
-
-            # create a mapping entry, if the request artist differs
-            if artist_name.strip().lower() != artist.artist_name.lower():
-                self.db.add(LastfmCache.ArtistMap(artist_name.strip(), artist.artist_name))
-
-            self.db.commit()
+        self.upsert_artist(artist_name, artist, db_artist)
 
         return artist
 
@@ -458,6 +573,11 @@ class LastfmCache:
             if db_release and db_release.fetched > datetime.datetime.now() - datetime.timedelta(
                     seconds=self.cache_validity):
                 raise LastfmCache.ReleaseNotFoundError(release_name, artist_name)
+
+        if not self.api:
+            release = self.lastfmcache_api_get_release(artist_name, release_name)
+            self.upsert_release(artist_name, release_name, release, db_release)
+            return release
 
         api_release = self.api.get_album(artist_name, release_name)
         try:
@@ -510,11 +630,11 @@ class LastfmCache:
                     try:
                         release.release_date = datetime.datetime.strptime(release_date_str, "%d %B %Y").date().strftime(
                             "%Y-%m-%d")
-                    except:
+                    except ValueError:
                         try:
                             release.release_date = datetime.datetime.strptime(release_date_str,
                                                                               "%B %Y").date().strftime("%Y-%m")
-                        except:
+                        except ValueError:
                             release.release_date = datetime.datetime.strptime(release_date_str,
                                                                               "%Y").date().strftime("%Y")
 
@@ -542,28 +662,7 @@ class LastfmCache:
                     track_artist = row.find(class_="chartlist-artist").find("a").string
                 release.tracks[track_number] = LastfmTrack(track_number, track_name, track_artist, listener_count)
 
-        # update/create in the cache entry
-        if self.db:
-            if db_release:
-                db_release.__init__(release.artist_name, release.release_name, release.release_date,
-                                    release.listener_count, release.play_count, release.cover_image)
-            else:
-                db_release = LastfmCache.Release(release.artist_name, release.release_name, release.release_date,
-                                                 release.listener_count, release.play_count, release.cover_image)
-                self.db.add(db_release)
-            for tag in release.tags:
-                db_release.tags.append(LastfmCache.ReleaseTag(tag, release.tags[tag]))
-            for track in release.tracks:
-                db_release.tracks.append(
-                    LastfmCache.ReleaseTrack(release.tracks[track].track_number, release.tracks[track].track_name,
-                                             release.tracks[track].artist_name, release.tracks[track].listener_count))
-
-            # create a mapping entry, if the request title differs
-            if artist_name.strip().lower() == release.artist_name.lower() and \
-                    release_name.strip().lower() != release.release_name.lower():
-                self.db.add(LastfmCache.ReleaseMap(release.artist_name, release_name.strip(), release.release_name))
-
-            self.db.commit()
+        self.upsert_release(artist_name, release_name, release, db_release)
 
         return release
 
