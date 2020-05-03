@@ -1,7 +1,7 @@
 from __future__ import annotations
 import json
 from collections import OrderedDict
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import pylast
 import bs4
@@ -372,20 +372,18 @@ class LastfmCache:
         self.db = sqlalchemy.orm.scoped_session(db)
         self.cache_validity = cache_validity
 
-    def lastfmcache_api_get_artist(self, artist_name) -> LastfmArtist:
+    def lastfmcache_api_get_artist(self, artist_name) -> Optional[LastfmArtist]:
         escaped_artist_name = artist_name.replace("/", "%2F")
         try:
             resp = requests.get("{lastfmcache_api_url}/v1/artists/{artist}"
                                 .format(lastfmcache_api_url=self.lastfmcache_api_url, artist=escaped_artist_name))
             if resp.status_code == 404:
-                self.db.add(LastfmCache.NotFoundArtist(artist_name))
-                self.db.commit()
-                raise LastfmCache.ArtistNotFoundError(artist_name)
+                return None
         except requests.exceptions.ConnectionError as e:
             raise LastfmCache.ConnectionError from e
         return LastfmArtist.from_json(resp.text)
 
-    def lastfmcache_api_get_release(self, artist_name: str, release_name: str) -> LastfmRelease:
+    def lastfmcache_api_get_release(self, artist_name: str, release_name: str) -> Optional[LastfmRelease]:
         escaped_artist_name = artist_name.replace("/", "%2F")
         escaped_release_name = release_name.replace("/", "%2F")
         try:
@@ -393,9 +391,7 @@ class LastfmCache:
                                 .format(lastfmcache_api_url=self.lastfmcache_api_url, artist=escaped_artist_name,
                                         release=escaped_release_name))
             if resp.status_code == 404:
-                self.db.add(LastfmCache.NotFoundRelease(artist_name, release_name))
-                self.db.commit()
-                raise LastfmCache.ReleaseNotFoundError(release_name, artist_name)
+                return None
         except requests.exceptions.ConnectionError as e:
             raise LastfmCache.ConnectionError from e
         return LastfmRelease.from_json(resp.text)
@@ -419,6 +415,18 @@ class LastfmCache:
         # create a mapping entry, if the request artist differs
         if req_artist_name.strip().lower() != artist.artist_name.lower():
             self.db.add(LastfmCache.ArtistMap(req_artist_name.strip(), artist.artist_name))
+
+        self.db.commit()
+
+    def upsert_not_found_artist(self, artist_name: str, db_not_found_artist: LastfmCache.NotFoundArtist):
+        if not self.db:
+            return
+
+        if db_not_found_artist:
+            db_not_found_artist.fetched = datetime.datetime.now()
+        else:
+            db_not_found_artist = LastfmCache.NotFoundArtist(artist_name)
+            self.db.add(db_not_found_artist)
 
         self.db.commit()
 
@@ -449,11 +457,25 @@ class LastfmCache:
 
         self.db.commit()
 
+    def upsert_not_found_release(self, artist_name: str, release_name: str,
+                                 db_not_found_release: LastfmCache.NotFoundRelease):
+        if not self.db:
+            return
+
+        if db_not_found_release:
+            db_not_found_release.fetched = datetime.datetime.now()
+        else:
+            db_not_found_release = LastfmCache.NotFoundRelease(artist_name, release_name)
+            self.db.add(db_not_found_release)
+
+        self.db.commit()
+
     def get_artist(self, artist_name: str) -> LastfmArtist:
 
         artist = LastfmArtist()
 
         db_artist = None
+        db_not_found_artist = None
 
         if self.db:
             artist_remap = self.db.query(LastfmCache.ArtistMap).filter_by(artist_name_src=artist_name).first()
@@ -473,15 +495,19 @@ class LastfmCache:
 
                 return artist
 
-            self.db.query(LastfmCache.NotFoundArtist).filter_by(artist_name=artist_name).first()
-            if db_artist and db_artist.fetched > datetime.datetime.now() - datetime.timedelta(
+            db_not_found_artist = self.db.query(LastfmCache.NotFoundArtist).filter_by(artist_name=artist_name).first()
+            if db_not_found_artist and db_not_found_artist.fetched > datetime.datetime.now() - datetime.timedelta(
                     seconds=self.cache_validity):
                 raise LastfmCache.ArtistNotFoundError(artist_name)
 
         if not self.api:
             artist = self.lastfmcache_api_get_artist(artist_name)
-            self.upsert_artist(artist_name, artist, db_artist)
-            return artist
+            if artist:
+                self.upsert_artist(artist_name, artist, db_artist)
+                return artist
+            else:
+                self.upsert_not_found_artist(artist_name, db_not_found_artist)
+                raise LastfmCache.ArtistNotFoundError(artist_name)
 
         api_artist = None
         try:
@@ -497,9 +523,7 @@ class LastfmCache:
 
         except pylast.WSError as e:
             if e.details == "The artist you supplied could not be found":
-                self.db.add(LastfmCache.NotFoundArtist(artist_name))
-                self.db.commit()
-
+                self.upsert_not_found_artist(artist_name, db_not_found_artist)
                 raise LastfmCache.ArtistNotFoundError(artist_name) from e
             else:
                 raise e
@@ -543,6 +567,7 @@ class LastfmCache:
         release = LastfmRelease()
 
         db_release = None
+        db_not_found_release = None
 
         if self.db:
             release_remap = self.db.query(LastfmCache.ReleaseMap)\
@@ -568,16 +593,20 @@ class LastfmCache:
 
                 return release
 
-            db_release = self.db.query(LastfmCache.NotFoundRelease).filter_by(artist_name=artist_name,
+            db_not_found_release = self.db.query(LastfmCache.NotFoundRelease).filter_by(artist_name=artist_name,
                                                                               release_name=release_name).first()
-            if db_release and db_release.fetched > datetime.datetime.now() - datetime.timedelta(
+            if db_not_found_release and db_not_found_release.fetched > datetime.datetime.now() - datetime.timedelta(
                     seconds=self.cache_validity):
                 raise LastfmCache.ReleaseNotFoundError(release_name, artist_name)
 
         if not self.api:
             release = self.lastfmcache_api_get_release(artist_name, release_name)
-            self.upsert_release(artist_name, release_name, release, db_release)
-            return release
+            if release:
+                self.upsert_release(artist_name, release_name, release, db_release)
+                return release
+            else:
+                self.upsert_not_found_release(artist_name, release_name, db_not_found_release)
+                raise LastfmCache.ReleaseNotFoundError(release_name, artist_name)
 
         api_release = self.api.get_album(artist_name, release_name)
         try:
@@ -591,8 +620,7 @@ class LastfmCache:
             raise LastfmCache.ConnectionError from e
         except pylast.WSError as e:
             if e.details == "Album not found":
-                self.db.add(LastfmCache.NotFoundRelease(release_name, artist_name))
-                self.db.commit()
+                self.upsert_not_found_release(artist_name, release_name, db_not_found_release)
                 raise LastfmCache.ReleaseNotFoundError(release_name, artist_name) from e
             elif e.details == "Operation failed - Most likely the backend service failed. Please try again.":
                 raise LastfmCache.ConnectionError from e
