@@ -198,7 +198,7 @@ class LastfmCache:
         listener_count = sqlalchemy.Column(sqlalchemy.Integer, autoincrement=True)
         play_count = sqlalchemy.Column(sqlalchemy.Integer, autoincrement=True)
         cover_image = sqlalchemy.Column(sqlalchemy.String(512), nullable=True)
-        biography = sqlalchemy.Column(sqlalchemy.Text, nullable=False)
+        biography = sqlalchemy.Column(sqlalchemy.Text(64000), nullable=False)
 
         tags = sqlalchemy.orm.relationship("ArtistTag", order_by="desc(ArtistTag.score)", cascade="all, delete-orphan")
 
