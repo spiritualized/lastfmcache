@@ -366,7 +366,7 @@ class LastfmCache:
         if not database_exists(url):
             create_database(url, encoding='utf8mb4')
 
-        engine = sqlalchemy.create_engine(url, encoding='utf-8', pool_recycle=3600)
+        engine = sqlalchemy.create_engine(url, encoding='utf-8', pool_recycle=3600, pool_timeout=5)
         LastfmCache.__db_base__.metadata.create_all(engine)
 
         db = sqlalchemy.orm.sessionmaker(engine)
@@ -567,7 +567,7 @@ class LastfmCache:
             soup = bs4.BeautifulSoup(resp.content, 'html5lib')
 
             if soup.find(class_="header-new-background-image"):
-                artist.cover_image = soup.find(class_="header-new-background-image").get("content")
+                artist.cover_image = str(soup.find(class_="header-new-background-image").get("content"))
 
         # update/create in the cache entry
         self.upsert_artist(artist_name, artist, db_artist)
@@ -692,11 +692,11 @@ class LastfmCache:
         if soup.find(id="tracklist"):
             for row in soup.find(id="tracklist").find("tbody").findAll("tr"):
                 track_number = int(row.find(class_="chartlist-index").string)
-                track_name = row.find(class_="chartlist-name").find("a").get_text()
+                track_name = str(row.find(class_="chartlist-name").find("a").get_text())
                 listener_count = str(
                     row.find(class_="chartlist-count-bar").find(class_="chartlist-count-bar-value")
                     .next.replace(",", "")).strip()
-                listener_count = str(listener_count) if listener_count else 0
+                listener_count = int(str(listener_count)) if listener_count else 0
                 track_artist = None
                 if row.find(class_="chartlist-artist").find("a"):
                     track_artist = row.find(class_="chartlist-artist").find("a").string
