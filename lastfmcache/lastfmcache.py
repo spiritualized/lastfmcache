@@ -16,6 +16,7 @@ from sqlalchemy.ext.declarative import declarative_base
 import sqlite3
 
 from sqlalchemy_utils import database_exists, create_database
+from unidecode import unidecode
 
 
 @sqlalchemy.event.listens_for(sqlalchemy.engine.Engine, "connect")
@@ -379,6 +380,8 @@ class LastfmCache:
                                 .format(lastfmcache_api_url=self.lastfmcache_api_url, artist=escaped_artist_name))
             if resp.status_code == 404:
                 return None
+            if resp.status_code == 500:
+                raise LastfmCache.LastfmCacheError
         except requests.exceptions.ConnectionError as e:
             raise LastfmCache.ConnectionError from e
         return LastfmArtist.from_json(resp.text)
@@ -392,6 +395,8 @@ class LastfmCache:
                                         release=escaped_release_name))
             if resp.status_code == 404:
                 return None
+            if resp.status_code == 500:
+                raise LastfmCache.LastfmCacheError
         except requests.exceptions.ConnectionError as e:
             raise LastfmCache.ConnectionError from e
         return LastfmRelease.from_json(resp.text)
@@ -409,6 +414,7 @@ class LastfmCache:
                                            artist.cover_image, artist.biography)
             self.db.add(db_artist)
             self.db.commit()
+
         for tag in artist.tags:
             db_artist.tags.append(LastfmCache.ArtistTag(tag, artist.tags[tag]))
 
@@ -443,6 +449,7 @@ class LastfmCache:
             db_release = LastfmCache.Release(release.artist_name, release.release_name, release.release_date,
                                              release.listener_count, release.play_count, release.cover_image)
             self.db.add(db_release)
+
         for tag in release.tags:
             db_release.tags.append(LastfmCache.ReleaseTag(tag, release.tags[tag]))
         for track in release.tracks:
@@ -490,8 +497,11 @@ class LastfmCache:
                 artist.play_count = db_artist.play_count
                 artist.cover_image = db_artist.cover_image
                 artist.biography = db_artist.biography
+
+                tags = OrderedDict()
                 for tag in db_artist.tags:
-                    artist.tags[tag.tag] = tag.score
+                    tags[tag.tag] = tag.score
+                artist.tags = LastfmCache.filter_tags(tags)
 
                 return artist
 
@@ -536,9 +546,11 @@ class LastfmCache:
             artist.cover_image = None
 
         try:
+            tags = OrderedDict()
             for tag in api_artist.get_top_tags():
                 if len(tag.item.name) <= 100:
-                    artist.tags[tag.item.name.lower()] = tag.weight
+                    tags[tag.item.name.lower()] = tag.weight
+            artist.tags = LastfmCache.filter_tags(tags)
         except pylast.MalformedResponseError as e:
             raise LastfmCache.LastfmCacheError from e
 
@@ -675,7 +687,7 @@ class LastfmCache:
                 next_weight -= 1
 
         # combine the two tag sets intelligently
-        release.tags = LastfmCache.combine_tags(api_tags, web_tags)
+        release.tags = LastfmCache.filter_tags(LastfmCache.combine_tags(api_tags, web_tags))
 
         if soup.find(id="tracklist"):
             for row in soup.find(id="tracklist").find("tbody").findAll("tr"):
@@ -749,11 +761,11 @@ class LastfmCache:
 
         return top_releases
 
-    # web tags have no score, however API tags are frequently missing
-    # sometimes API tags all have identical scores, yet web ordering is superior
+
     @staticmethod
     def combine_tags(api_tags: Dict[str, int], web_tags: Dict[str, int]) -> Dict[str, int]:
-
+        """web tags have no score, however API tags are frequently missing
+        sometimes API tags all have identical scores, yet web ordering is superior"""
         combined_tags = api_tags.copy()
 
         for tag in web_tags:
@@ -789,6 +801,21 @@ class LastfmCache:
             recombined_partitions.update(reordered_partition)
 
         return recombined_partitions
+
+    @staticmethod
+    def filter_tags(tags: Dict[str, int]) -> Dict[str, int]:
+        """filter out duplicate tags after normalizing accented characters"""
+
+        normalized = set()
+        tags_out = OrderedDict()
+        for tag in tags:
+            curr_normalized = unidecode(tag)
+            if curr_normalized not in normalized:
+                normalized.add(curr_normalized)
+                tags_out[tag] = tags[tag]
+
+        return tags_out
+
 
     @staticmethod
     def __lastfm_urlencode(str_in: str) -> str:
