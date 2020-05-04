@@ -153,7 +153,7 @@ class LastfmTopRelease:
 
 class LastfmCache:
 
-    __default_url = "http://localhost:5000/lastfmcache/api"
+    __default_url = "https://spiritualized.io/lastfmcache/api"
 
     def __init__(self, api_key: str = None, shared_secret: str = None, lastfmcache_api_url=__default_url) -> None:
         self.db = None
