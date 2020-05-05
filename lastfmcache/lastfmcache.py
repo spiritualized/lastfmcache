@@ -27,20 +27,23 @@ def set_sqlite_pragma(dbapi_connection, connection_record):
         cursor.close()
 
 
-def sqlite_nocase() -> None:
+def set_string_collation(collation) -> None:
 
     # cols = [LastfmCache.Artist.__dict__[x] for x in vars(LastfmCache.Artist)
     #   if isinstance(LastfmCache.Artist.__dict__[x], InstrumentedAttribute)]:
 
-    for col in [LastfmCache.Artist.artist_name, LastfmCache.Release.artist_name, LastfmCache.Release.release_name,
-                LastfmCache.ReleaseTrack.track_name, LastfmCache.ReleaseTrack.track_artist,
-                LastfmCache.TopUserRelease.username, LastfmCache.TopUserRelease.artist,
-                LastfmCache.TopUserRelease.title, LastfmCache.NotFoundArtist.artist_name,
+    for col in [LastfmCache.Artist.artist_name, LastfmCache.Artist.cover_image, LastfmCache.Artist.biography,
+                LastfmCache.ArtistMap.artist_name_src, LastfmCache.ArtistMap.artist_name_dest,
+                LastfmCache.ArtistTag.tag, LastfmCache.NotFoundArtist.artist_name,
                 LastfmCache.NotFoundRelease.artist_name, LastfmCache.NotFoundRelease.release_name,
-                LastfmCache.ReleaseMap.artist_name, LastfmCache.ReleaseMap.release_name_src,
-                LastfmCache.ReleaseMap.release_name_dest, LastfmCache.ArtistMap.artist_name_src,
-                LastfmCache.ArtistMap.artist_name_dest]:
-        col.type.collation = 'NOCASE'
+                LastfmCache.Release.artist_name, LastfmCache.Release.cover_image, LastfmCache.Release.release_date,
+                LastfmCache.Release.release_name, LastfmCache.ReleaseMap.artist_name,
+                LastfmCache.ReleaseMap.release_name_src, LastfmCache.ReleaseTrack.track_artist,
+                LastfmCache.ReleaseTrack.track_name, LastfmCache.TopUserRelease.username,
+                LastfmCache.TopUserRelease.artist, LastfmCache.TopUserRelease.title,
+
+                LastfmCache.ReleaseMap.release_name_dest, LastfmCache.ReleaseTag.tag]:
+        col.type.collation = collation
 
 
 class LastfmArtist:
@@ -350,9 +353,9 @@ class LastfmCache:
 
     # connect to database
     def enable_file_cache(self, cache_validity: int = 86400 * 28) -> None:
+        set_string_collation('NOCASE')
         engine = sqlalchemy.create_engine("sqlite:///cache.db?check_same_thread=False",
                                           poolclass=sqlalchemy.pool.SingletonThreadPool)
-        sqlite_nocase()
         LastfmCache.__db_base__.metadata.create_all(engine)
 
         db = sqlalchemy.orm.sessionmaker(engine)
@@ -361,12 +364,13 @@ class LastfmCache:
 
     def enable_mysql_cache(self, mysql_host: str, mysql_username: str, mysql_password: str, mysql_db: str,
                            cache_validity: int = 86400 * 28):
-        url = "mysql+pymysql://{0}:{1}@{2}/{3}?charset=utf8".format(mysql_username, mysql_password, mysql_host,
-                                                                    mysql_db)
+        set_string_collation('utf8mb4_0900_as_ci')
+        url = "mysql+pymysql://{0}:{1}@{2}/{3}?charset=utf8mb4".format(mysql_username, mysql_password, mysql_host,
+                                                                       mysql_db)
         if not database_exists(url):
-            create_database(url, encoding='utf8mb4')
+            create_database(url, encoding='utf8')
 
-        engine = sqlalchemy.create_engine(url, encoding='utf-8', pool_recycle=3600, pool_timeout=5)
+        engine = sqlalchemy.create_engine(url, encoding='utf8', pool_recycle=3600, pool_timeout=5)
         LastfmCache.__db_base__.metadata.create_all(engine)
 
         db = sqlalchemy.orm.sessionmaker(engine)
@@ -498,10 +502,8 @@ class LastfmCache:
                 artist.cover_image = db_artist.cover_image
                 artist.biography = db_artist.biography
 
-                tags = OrderedDict()
                 for tag in db_artist.tags:
-                    tags[tag.tag] = tag.score
-                artist.tags = LastfmCache.filter_tags(tags)
+                    artist.tags[tag.tag] = tag.score
 
                 return artist
 
@@ -546,11 +548,9 @@ class LastfmCache:
             artist.cover_image = None
 
         try:
-            tags = OrderedDict()
             for tag in api_artist.get_top_tags():
                 if len(tag.item.name) <= 100:
-                    tags[tag.item.name.lower()] = tag.weight
-            artist.tags = LastfmCache.filter_tags(tags)
+                    artist.tags[tag.item.name.lower()] = tag.weight
         except pylast.MalformedResponseError as e:
             raise LastfmCache.LastfmCacheError from e
 
@@ -605,8 +605,8 @@ class LastfmCache:
 
                 return release
 
-            db_not_found_release = self.db.query(LastfmCache.NotFoundRelease).filter_by(artist_name=artist_name,
-                                                                              release_name=release_name).first()
+            db_not_found_release = self.db.query(LastfmCache.NotFoundRelease)\
+                .filter_by(artist_name=artist_name, release_name=release_name).first()
             if db_not_found_release and db_not_found_release.fetched > datetime.datetime.now() - datetime.timedelta(
                     seconds=self.cache_validity):
                 raise LastfmCache.ReleaseNotFoundError(release_name, artist_name)
@@ -687,7 +687,7 @@ class LastfmCache:
                 next_weight -= 1
 
         # combine the two tag sets intelligently
-        release.tags = LastfmCache.filter_tags(LastfmCache.combine_tags(api_tags, web_tags))
+        release.tags = LastfmCache.combine_tags(api_tags, web_tags)
 
         if soup.find(id="tracklist"):
             for row in soup.find(id="tracklist").find("tbody").findAll("tr"):
@@ -801,21 +801,6 @@ class LastfmCache:
             recombined_partitions.update(reordered_partition)
 
         return recombined_partitions
-
-    @staticmethod
-    def filter_tags(tags: Dict[str, int]) -> Dict[str, int]:
-        """filter out duplicate tags after normalizing accented characters"""
-
-        normalized = set()
-        tags_out = OrderedDict()
-        for tag in tags:
-            curr_normalized = unidecode(tag)
-            if curr_normalized not in normalized:
-                normalized.add(curr_normalized)
-                tags_out[tag] = tags[tag]
-
-        return tags_out
-
 
     @staticmethod
     def __lastfm_urlencode(str_in: str) -> str:
