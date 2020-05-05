@@ -378,7 +378,7 @@ class LastfmCache:
         self.cache_validity = cache_validity
 
     def lastfmcache_api_get_artist(self, artist_name) -> Optional[LastfmArtist]:
-        escaped_artist_name = artist_name.replace("/", "%2F")
+        escaped_artist_name = artist_name.replace("/", "∕")
         try:
             resp = requests.get("{lastfmcache_api_url}/v1/artists/{artist}"
                                 .format(lastfmcache_api_url=self.lastfmcache_api_url, artist=escaped_artist_name))
@@ -391,8 +391,8 @@ class LastfmCache:
         return LastfmArtist.from_json(resp.text)
 
     def lastfmcache_api_get_release(self, artist_name: str, release_name: str) -> Optional[LastfmRelease]:
-        escaped_artist_name = artist_name.replace("/", "%2F")
-        escaped_release_name = release_name.replace("/", "%2F")
+        escaped_artist_name = artist_name.replace("/", "∕")
+        escaped_release_name = release_name.replace("/", "∕")
         try:
             resp = requests.get("{lastfmcache_api_url}/v1/artists/{artist}/releases/{release}"
                                 .format(lastfmcache_api_url=self.lastfmcache_api_url, artist=escaped_artist_name,
