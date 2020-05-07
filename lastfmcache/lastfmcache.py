@@ -46,6 +46,21 @@ def set_string_collation(collation) -> None:
         col.type.collation = collation
 
 
+class PyLastPatchedBaseObject(pylast._BaseObject):
+    """An abstract webservices object."""
+
+    def _request(self, method_name, cacheable=False, params=None):
+        if not params:
+            params = self._get_params()
+        params['autocorrect'] = 1
+
+        return pylast._Request(self.network, method_name, params).execute(cacheable)
+
+    @staticmethod
+    def monkey_patch():
+        pylast._BaseObject._request = PyLastPatchedBaseObject._request
+
+
 class LastfmArtist:
 
     def __init__(self) -> None:
@@ -167,6 +182,7 @@ class LastfmCache:
         if api_key and shared_secret:
             self.api_key = api_key
             self.shared_secret = shared_secret
+            PyLastPatchedBaseObject.monkey_patch()
             self.api = pylast.LastFMNetwork(api_key=api_key, api_secret=shared_secret)
         elif api_key or shared_secret:
             raise ValueError("Provide both or neither of api_key and shared_secret")
