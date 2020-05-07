@@ -353,9 +353,14 @@ class LastfmCache:
 
     # connect to database
     def enable_file_cache(self, cache_validity: int = 86400 * 28) -> None:
-        set_string_collation('NOCASE')
         engine = sqlalchemy.create_engine("sqlite:///cache.db?check_same_thread=False",
                                           poolclass=sqlalchemy.pool.SingletonThreadPool)
+
+        engine.raw_connection().create_collation('UNICODE_NOCASE',
+                                                 lambda x, y: 1 if x.lower() > y.lower()
+                                                 else -1 if x.lower() < y.lower() else 0)
+        set_string_collation('UNICODE_NOCASE')
+
         LastfmCache.__db_base__.metadata.create_all(engine)
 
         db = sqlalchemy.orm.sessionmaker(engine)
