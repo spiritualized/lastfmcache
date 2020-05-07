@@ -665,6 +665,13 @@ class LastfmCache:
 
         soup = bs4.BeautifulSoup(resp.content, 'html5lib')
 
+        # overwrite the API release title with the web title, if the API result is erroneously lowercase
+        if soup.find(class_="header-new-title"):
+            web_release_name = str(soup.find(class_="header-new-title").text)
+            if release.release_name.islower() and release.release_name == web_release_name.lower() \
+                    and web_release_name and not web_release_name.isupper():
+                release.release_name = web_release_name
+
         if soup.find(class_="catalogue-metadata"):
             matches = [x for x in soup.find(class_="catalogue-metadata").findAll({"dt", "dd"})]
             pairs = [matches[i:i + 2] for i in range(0, len(matches), 2)]
