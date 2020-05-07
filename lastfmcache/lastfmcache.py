@@ -375,7 +375,7 @@ class LastfmCache:
         if not database_exists(url):
             create_database(url, encoding='utf8')
 
-        engine = sqlalchemy.create_engine(url, encoding='utf8', pool_recycle=3600, pool_timeout=5)
+        engine = sqlalchemy.create_engine(url, encoding='utf8', pool_size=20, pool_pre_ping=True)
         LastfmCache.__db_base__.metadata.create_all(engine)
 
         db = sqlalchemy.orm.sessionmaker(engine)
