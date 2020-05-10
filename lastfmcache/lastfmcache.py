@@ -426,6 +426,20 @@ class LastfmCache:
             raise LastfmCache.ConnectionError from e
         return LastfmRelease.from_json(resp.text)
 
+    @staticmethod
+    def add_artist_remap(req_artist_name: str, artist_name: str) -> bool:
+
+        if req_artist_name.strip().lower() == artist_name.lower():
+            return False
+
+        linkages = ["and", "&", "feat", "vs"]
+
+        for linkage in linkages:
+            if linkage in req_artist_name.lower() or linkage in artist_name.lower():
+                return False
+
+        return True
+
     def upsert_artist(self, req_artist_name: str, artist: LastfmArtist, db_artist: LastfmCache.Artist):
         """update/create in the cache entry"""
         if not self.db:
@@ -444,7 +458,7 @@ class LastfmCache:
             db_artist.tags.append(LastfmCache.ArtistTag(tag, artist.tags[tag]))
 
         # create a mapping entry, if the request artist differs
-        if req_artist_name.strip().lower() != artist.artist_name.lower():
+        if LastfmCache.add_artist_remap(req_artist_name, artist.artist_name):
             self.db.add(LastfmCache.ArtistMap(req_artist_name.strip(), artist.artist_name))
 
         self.db.commit()
@@ -582,6 +596,8 @@ class LastfmCache:
                     artist.tags[tag.item.name.lower()] = tag.weight
         except pylast.MalformedResponseError as e:
             raise LastfmCache.LastfmCacheError from e
+
+        artist.tags = LastfmCache.filter_tags(artist.tags)
 
         # only fetch the HTML page if the artist cover image is missing
         if not artist.cover_image:
@@ -733,7 +749,7 @@ class LastfmCache:
                 next_weight -= 1
 
         # combine the two tag sets intelligently
-        release.tags = LastfmCache.combine_tags(api_tags, web_tags)
+        release.tags = LastfmCache.filter_tags(LastfmCache.combine_tags(api_tags, web_tags))
 
         if soup.find(id="tracklist"):
             for row in soup.find(id="tracklist").find("tbody").findAll("tr"):
@@ -807,6 +823,9 @@ class LastfmCache:
 
         return top_releases
 
+    @staticmethod
+    def filter_tags(tags: Dict[str, int]) -> Dict[str, int]:
+        return {tag: tags[tag] for tag in tags if len(tag) <= 100}
 
     @staticmethod
     def combine_tags(api_tags: Dict[str, int], web_tags: Dict[str, int]) -> Dict[str, int]:
