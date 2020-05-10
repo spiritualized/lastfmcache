@@ -568,6 +568,10 @@ class LastfmCache:
         except AttributeError:  # TODO remove this workaround for pylast failure on looking up an empty biography
             pass
 
+        # If the response artist name is different, requery the local database
+        if artist_name != artist.artist_name:
+            db_artist = self.db.query(LastfmCache.Artist).filter_by(artist_name=artist.artist_name).first()
+
         # Remove "star" images
         if artist.cover_image and "2a96cbd8b46e442fc41c2b86b821562f" in artist.cover_image:
             artist.cover_image = None
@@ -670,6 +674,11 @@ class LastfmCache:
                 raise e
         except pylast.MalformedResponseError as e:
             raise LastfmCache.LastfmCacheError from e
+
+        # If the response release/artist name is different, requery the local database
+        if artist_name != release.artist_name or release_name != release.release_name:
+            db_release = self.db.query(LastfmCache.Release).filter_by(artist_name=artist_name,
+                                                                      release_name=release_name).first()
 
         api_tags = OrderedDict()
         for tag in api_release.get_top_tags():
