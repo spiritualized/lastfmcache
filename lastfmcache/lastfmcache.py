@@ -536,6 +536,10 @@ class LastfmCache:
         if not self.api:
             artist = self.lastfmcache_api_get_artist(artist_name)
             if artist:
+                # If the response artist name is different, requery the local database
+                if artist_name != artist.artist_name:
+                    db_artist = self.db.query(LastfmCache.Artist).filter_by(artist_name=artist.artist_name).first()
+
                 self.upsert_artist(artist_name, artist, db_artist)
                 return artist
             else:
@@ -635,6 +639,11 @@ class LastfmCache:
         if not self.api:
             release = self.lastfmcache_api_get_release(artist_name, release_name)
             if release:
+                # If the response release/artist name is different, requery the local database
+                if artist_name != release.artist_name or release_name != release.release_name:
+                    db_release = self.db.query(LastfmCache.Release).filter_by(artist_name=artist_name,
+                                                                              release_name=release_name).first()
+
                 self.upsert_release(artist_name, release_name, release, db_release)
                 return release
             else:
