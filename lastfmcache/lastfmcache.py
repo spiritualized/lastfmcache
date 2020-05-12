@@ -661,8 +661,8 @@ class LastfmCache:
             if release:
                 # If the response release/artist name is different, requery the local database
                 if artist_name != release.artist_name or release_name != release.release_name:
-                    db_release = self.db.query(LastfmCache.Release).filter_by(artist_name=artist_name,
-                                                                              release_name=release_name).first()
+                    db_release = self.db.query(LastfmCache.Release).filter_by(artist_name=release.artist_name,
+                                                                              release_name=release.release_name).first()
 
                 self.upsert_release(artist_name, release_name, release, db_release)
                 return release
@@ -693,8 +693,8 @@ class LastfmCache:
 
         # If the response release/artist name is different, requery the local database
         if artist_name != release.artist_name or release_name != release.release_name:
-            db_release = self.db.query(LastfmCache.Release).filter_by(artist_name=artist_name,
-                                                                      release_name=release_name).first()
+            db_release = self.db.query(LastfmCache.Release).filter_by(artist_name=release.artist_name,
+                                                                      release_name=release.release_name).first()
 
         api_tags = OrderedDict()
         for tag in api_release.get_top_tags():
