@@ -432,7 +432,7 @@ class LastfmCache:
         if req_artist_name.strip().lower() == artist_name.lower():
             return False
 
-        linkages = ["and", "&", "feat", "vs"]
+        linkages = [" and ", " & ", " feat", " vs ", " ft "]
 
         for linkage in linkages:
             if linkage in req_artist_name.lower() or linkage in artist_name.lower():
