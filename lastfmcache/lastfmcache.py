@@ -745,7 +745,7 @@ class LastfmCache:
         if soup.find(class_="catalogue-tags"):
             next_weight = -1
             for match in soup.find(class_="catalogue-tags").findAll(class_="tag"):
-                web_tags[str(match.string)] = next_weight
+                web_tags[str(match.string).lower()] = next_weight
                 next_weight -= 1
 
         # combine the two tag sets intelligently
