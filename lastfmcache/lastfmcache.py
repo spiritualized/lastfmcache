@@ -766,7 +766,7 @@ class LastfmCache:
                 listener_count = int(str(listener_count)) if listener_count else 0
                 track_artist = None
                 if row.find(class_="chartlist-artist").find("a"):
-                    track_artist = row.find(class_="chartlist-artist").find("a").string
+                    track_artist = str(row.find(class_="chartlist-artist").find("a").string)
                 release.tracks[track_number] = LastfmTrack(track_number, track_name, track_artist, listener_count)
 
         self.upsert_release(artist_name, release_name, release, db_release)
