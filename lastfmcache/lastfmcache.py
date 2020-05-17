@@ -399,7 +399,7 @@ class LastfmCache:
         self.cache_validity = cache_validity
 
     def lastfmcache_api_get_artist(self, artist_name) -> Optional[LastfmArtist]:
-        escaped_artist_name = artist_name.replace("/", "∕")
+        escaped_artist_name = LastfmCache.api_urlencode(artist_name)
         try:
             resp = requests.get("{lastfmcache_api_url}/v1/artists/{artist}"
                                 .format(lastfmcache_api_url=self.lastfmcache_api_url, artist=escaped_artist_name))
@@ -412,8 +412,8 @@ class LastfmCache:
         return LastfmArtist.from_json(resp.text)
 
     def lastfmcache_api_get_release(self, artist_name: str, release_name: str) -> Optional[LastfmRelease]:
-        escaped_artist_name = artist_name.replace("/", "∕")
-        escaped_release_name = release_name.replace("/", "∕")
+        escaped_artist_name = LastfmCache.api_urlencode(artist_name)
+        escaped_release_name = LastfmCache.api_urlencode(release_name)
         try:
             resp = requests.get("{lastfmcache_api_url}/v1/artists/{artist}/releases/{release}"
                                 .format(lastfmcache_api_url=self.lastfmcache_api_url, artist=escaped_artist_name,
@@ -875,3 +875,11 @@ class LastfmCache:
     @staticmethod
     def __lastfm_urlencode(str_in: str) -> str:
         return str_in.replace("/", "%2F").replace("#", "%23")
+
+    @staticmethod
+    def api_urlencode(str_in) -> str:
+        return str_in.replace("/", "∕").replace("?", "﹖")
+
+    @staticmethod
+    def api_urldecode(str_in) -> str:
+        return str_in.replace('∕', '/').replace("﹖", "?")
