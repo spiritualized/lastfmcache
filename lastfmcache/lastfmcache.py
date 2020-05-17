@@ -428,14 +428,19 @@ class LastfmCache:
 
     @staticmethod
     def add_artist_remap(req_artist_name: str, artist_name: str) -> bool:
+        """
+        Ensure that multiple artists aren't autocorrected to a single artist
+        Check for a linkage substring in both strings, if the requested artist name contains one, but the returned
+        artist name does not, do not persist the remap
+        """
 
         if req_artist_name.strip().lower() == artist_name.lower():
             return False
 
-        linkages = [" and ", " & ", " feat", " vs ", " ft "]
+        linkages = [" and ", " & ", " feat", " vs ", "vs.", " ft "]
 
-        for linkage in linkages:
-            if linkage in req_artist_name.lower() or linkage in artist_name.lower():
+        if [x for x in linkages if x in req_artist_name.lower()] \
+                and not [x for x in linkages if x in artist_name.lower()]:
                 return False
 
         return True
