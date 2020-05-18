@@ -21,7 +21,7 @@ from unidecode import unidecode
 
 @sqlalchemy.event.listens_for(sqlalchemy.engine.Engine, "connect")
 def set_sqlite_pragma(dbapi_connection, connection_record):
-    if type(dbapi_connection) is sqlite3.Connection:  # play well with other DB backends
+    if type(dbapi_connection) is sqlite3.Connection:  # play nicely with other DB backends
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
@@ -441,7 +441,7 @@ class LastfmCache:
 
         if [x for x in linkages if x in req_artist_name.lower()] \
                 and not [x for x in linkages if x in artist_name.lower()]:
-                return False
+            return False
 
         return True
 
