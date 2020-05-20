@@ -878,8 +878,8 @@ class LastfmCache:
 
     @staticmethod
     def api_urlencode(str_in) -> str:
-        return str_in.replace("/", "∕").replace("?", "﹖")
+        return str_in.replace("/", "∕").replace("?", "？")
 
     @staticmethod
     def api_urldecode(str_in) -> str:
-        return str_in.replace('∕', '/').replace("﹖", "?")
+        return str_in.replace('∕', '/').replace("？", "?")
