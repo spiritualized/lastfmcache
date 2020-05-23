@@ -193,6 +193,9 @@ class LastfmCache:
     class ConnectionError(Exception):
         pass
 
+    class UpgradeRequiredError(Exception):
+        pass
+
     class ReleaseNotFoundError(Exception):
         def __init__(self, release_name, artist_name):
             self.release_name = release_name
@@ -405,6 +408,8 @@ class LastfmCache:
                                 .format(lastfmcache_api_url=self.lastfmcache_api_url, artist=escaped_artist_name))
             if resp.status_code == 404:
                 return None
+            if resp.status_code == 426:
+                raise LastfmCache.UpgradeRequiredError
             if resp.status_code == 500:
                 raise LastfmCache.LastfmCacheError
         except requests.exceptions.ConnectionError as e:
@@ -420,6 +425,8 @@ class LastfmCache:
                                         release=escaped_release_name))
             if resp.status_code == 404:
                 return None
+            if resp.status_code == 426:
+                raise LastfmCache.UpgradeRequiredError
             if resp.status_code == 500:
                 raise LastfmCache.LastfmCacheError
         except requests.exceptions.ConnectionError as e:
