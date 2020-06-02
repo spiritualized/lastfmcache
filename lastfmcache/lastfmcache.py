@@ -529,6 +529,14 @@ class LastfmCache:
         self.db.commit()
 
     def get_artist(self, artist_name: str) -> LastfmArtist:
+        """get_artist wrapper function. Roll back and retry if we get a StatementError"""
+        try:
+            return self.get_artist_inner(artist_name)
+        except sqlalchemy.exc.StatementError:
+            self.db.rollback()
+            return self.get_artist(artist_name)
+
+    def get_artist_inner(self, artist_name: str) -> LastfmArtist:
 
         artist = LastfmArtist()
 
@@ -632,6 +640,14 @@ class LastfmCache:
         return artist
 
     def get_release(self, artist_name: str, release_name: str) -> LastfmRelease:
+        """get_release wrapper function. Roll back and retry if we get a StatementError"""
+        try:
+            return self.get_release_inner(artist_name, release_name)
+        except sqlalchemy.exc.StatementError:
+            self.db.rollback()
+            return self.get_release(artist_name, release_name)
+
+    def get_release_inner(self, artist_name: str, release_name: str) -> LastfmRelease:
 
         release = LastfmRelease()
 
