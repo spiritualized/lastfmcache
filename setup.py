@@ -2,10 +2,10 @@ from distutils.core import setup
 setup(
     name = 'lastfmcache',
     packages = ['lastfmcache'],
-    version = '1.2.3',
+    version = '1.2.4',
     description = 'Python interface to the Last.FM API/website with caching support',
     url = 'https://github.com/spiritualized/lastfmcache',
-    download_url = 'https://github.com/spiritualized/lastfmcache/archive/v1.2.3.tar.gz',
+    download_url = 'https://github.com/spiritualized/lastfmcache/archive/v1.2.4.tar.gz',
     keywords = ['lastfm', 'python', 'cache', 'api'],
     install_requires = [
                     'bs4',
