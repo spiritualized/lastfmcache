@@ -613,7 +613,7 @@ class LastfmCache:
         try:
             for tag in api_artist.get_top_tags():
                 if len(tag.item.name) <= 100:
-                    artist.tags[tag.item.name.lower()] = tag.weight
+                    artist.tags[tag.item.name.lower()] = int(tag.weight)
         except pylast.MalformedResponseError as e:
             raise LastfmCache.LastfmCacheError from e
 
@@ -676,7 +676,10 @@ class LastfmCache:
                     release.tracks[track.track_number] = LastfmTrack(track.track_number, track.track_name,
                                                                      track.track_artist, track.listener_count)
 
-                return release
+                # do not return the cache entry if the date is missing, and the cache entry is older than a day
+                if release.release_date or \
+                        db_release.fetched > datetime.datetime.now() - datetime.timedelta(seconds=86400):
+                    return release
 
             db_not_found_release = self.db.query(LastfmCache.NotFoundRelease)\
                 .filter_by(artist_name=artist_name, release_name=release_name).first()
@@ -727,7 +730,7 @@ class LastfmCache:
         api_tags = OrderedDict()
         for tag in api_release.get_top_tags():
             if len(tag.item.name) <= 100:
-                api_tags[tag.item.name.lower()] = tag.weight
+                api_tags[tag.item.name.lower()] = int(tag.weight)
 
         url_artist_name = LastfmCache.__lastfm_urlencode(artist_name)
         url_release_name = LastfmCache.__lastfm_urlencode(release_name)
